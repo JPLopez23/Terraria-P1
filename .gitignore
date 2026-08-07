@@ -1,0 +1,21 @@
+# Binarios y objetos
+*.o
+*.obj
+*.exe
+terraria-forge
+build/
+
+# Dependencias vendoreadas (se descargan con instrucciones del README)
+third_party/
+
+# Salidas de ejecución y benchmark
+*.csv
+*.pgm
+*.ppm
+bench/resultados/
+
+# Editor / SO
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
