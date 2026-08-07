@@ -4,14 +4,19 @@
  *
  * Universidad del Valle de Guatemala · Computación Paralela y Distribuida.
  *
- * Esqueleto de arranque: por ahora solo confirma que el proyecto compila y
- * enlaza. La ventana, el mundo y el kernel de iluminación llegan en los
- * siguientes commits, en el orden del PLAN_FINAL.MD.
+ * En este punto el programa ya captura y valida sus argumentos: nada queda
+ * hard-coded a partir de aquí.
  */
+#include "config.hpp"
+
 #include <cstdio>
 
-int main() {
-    std::printf("Terraria Forge - Proyecto #1, Computacion Paralela y Distribuida\n");
-    std::printf("Esqueleto inicial: compila y enlaza correctamente.\n");
-    return 0;
+int main(int argc, char** argv) {
+    Config cfg;
+    int codigo = parsearArgs(argc, argv, cfg);
+    if (codigo != SALIDA_OK) return codigo;
+
+    std::printf("Terraria Forge | ventana %dx%d | vsync %s | duracion %.1f s\n",
+                cfg.w, cfg.h, cfg.vsync ? "on" : "off", cfg.duration);
+    return SALIDA_OK;
 }
