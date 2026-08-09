@@ -14,7 +14,10 @@ void imprimirUso(const char* nombrePrograma) {
         "  --w <int>           ancho de ventana en px (>=640, default 1280)\n"
         "  --h <int>           alto de ventana en px (>=480, default 720)\n"
         "  --duration <float>  segundos antes de salir (default: infinito)\n"
+        "  --headless          sin ventana: mide solo el computo\n"
         "  --vsync             activar VSync (NUNCA al medir rendimiento)\n"
+        "  --captura <ruta>    volcar un frame a BMP y salir (depuracion)\n"
+        "  --captura-t <float> segundos simulados antes de la captura (default 3)\n"
         "  --help              esta ayuda\n"
         "  ESC cierra el programa.\n",
         nombrePrograma);
@@ -84,6 +87,14 @@ int parsearArgs(int argc, char** argv, Config& cfg) {
         } else if (std::strcmp(a, "--duration") == 0) {
             const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
             if (!leerFlotante(t, a, 0.0, &cfg.duration)) return SALIDA_ERROR_VALOR;
+        } else if (std::strcmp(a, "--captura") == 0) {
+            const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
+            cfg.captura = t;
+        } else if (std::strcmp(a, "--captura-t") == 0) {
+            const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
+            if (!leerFlotante(t, a, 0.0, &cfg.captura_t)) return SALIDA_ERROR_VALOR;
+        } else if (std::strcmp(a, "--headless") == 0) {
+            cfg.headless = true;
         } else if (std::strcmp(a, "--vsync") == 0) {
             cfg.vsync = true;
         } else {
