@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include "mundo.hpp"
+#include "camara.hpp"
 #include "config.hpp"
 
 #include <cstdint>
@@ -47,6 +49,10 @@ private:
     SDL_Texture*  textura  = nullptr;
     int ancho = 0, alto = 0;
 };
+
+// dibuja el mundo completo al framebuffer.
+void componerFrame(const Mundo& m, const Camara& cam, double tiempo,
+                   const Config& cfg, uint32_t* fb);
 
 // texto con la fuente bitmap 5×7 embebida (overlay de FPS).
 void dibujarTexto(uint32_t* fb, int w, int h, int x, int y, int escala,

@@ -22,6 +22,10 @@ enum CodigoSalida {
 struct Config {
     int         w           = 1280;     // --w: ancho de ventana en píxeles (mínimo 640)
     int         h           = 720;      // --h: alto de ventana en píxeles (mínimo 480)
+    int         grid_w      = 400;      // --grid AxB: ancho del mundo en tiles
+    int         grid_h      = 240;      // --grid AxB: alto del mundo en tiles
+    uint32_t    seed        = 0;        // --seed: semilla del mundo (0 = aleatoria)
+    bool        seed_fija   = false;    // true si el usuario pasó --seed
     double      duration    = 0.0;      // --duration: segundos antes de salir (0 = infinito)
     bool        headless    = false;    // --headless: sin ventana, mide solo cómputo
     bool        vsync       = false;    // --vsync: sincronizar con el refresco (¡apagado al medir!)

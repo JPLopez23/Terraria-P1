@@ -1,9 +1,10 @@
 /**
- * render.cpp — framebuffer, presentación con SDL y utilidades de dibujo
- * (ver render.hpp).
+ * render.cpp — composición del frame con estética Terraria (ver render.hpp).
  *
- * La composición del mundo (paleta, texturas y luz) se agrega sobre este
- * mismo archivo en los siguientes commits.
+ * Los colores están calcados de la paleta clásica de Terraria (tierra
+ * 151,107,75 · pasto 28,216,94 · piedra gris...) y cada tile se pinta con
+ * variación determinista por posición — motas, granulado, vetas — en
+ * texeles de 2×2 px, el "pixel art chunky" característico del juego.
  */
 #include "render.hpp"
 #include "ruido.hpp"
@@ -30,6 +31,233 @@ static inline uint32_t empaquetarARGB(float r, float g, float b) {
     return 0xFF000000u | (static_cast<uint32_t>(ir) << 16)
                        | (static_cast<uint32_t>(ig) << 8)
                        |  static_cast<uint32_t>(ib);
+}
+
+// ----------------------------------------------------------------
+// Textura procedural por tile — el corazón del "se ve como Terraria"
+// ----------------------------------------------------------------
+
+// Paletas por bioma para los tiles "vivos" (los demás tipos comparten color
+// en todo el mundo, igual que en Terraria).
+//                                        bosque           nieve            corrupción       desierto
+static const float TIERRA_RGB[NUM_BIOMAS][3] = {{151,107, 75}, {174,184,204}, {109, 80,102}, {211,180,125}};
+static const float PASTO_RGB [NUM_BIOMAS][3] = {{ 28,216, 94}, {235,245,255}, {150, 72,208}, {224,202,144}};
+static const float PIEDRA_RGB[NUM_BIOMAS][3] = {{128,128,132}, {126,140,160}, { 98, 88,116}, {166,146,116}};
+static const float HOJA_RGB  [NUM_BIOMAS][3] = {{ 44,142, 66}, {200,216,235}, {120, 62,168}, { 72,158, 74}};
+
+// color base de un píxel dentro de un tile.
+static ColorF texturaTile(uint8_t tipo, int wpx, int wpy, uint32_t semilla, float tiempo,
+                          uint8_t bioma, bool infierno) {
+    // Texel de 2×2 px: el grano del pixel art de Terraria.
+    int txl = wpx >> 1, tyl = wpy >> 1;
+    float v  = hashAFloat(mezclarHash(static_cast<uint32_t>(txl),
+                                      static_cast<uint32_t>(tyl), semilla));
+    float v2 = hashAFloat(mezclarHash(static_cast<uint32_t>(txl) * 3u + 7u,
+                                      static_cast<uint32_t>(tyl), semilla ^ 0x5A5Au));
+    int subY = wpy & 7;   // fila dentro del tile (0 arriba)
+
+    // Infierno: la roca del fondo del mundo es piedra ardiente con brasas
+    // incrustadas que brillan solas.
+    if (infierno && (tipo == TIERRA || tipo == PIEDRA || tipo == PASTO)) {
+        if (v2 > 0.90f) {
+            float brasa = 0.75f + 0.25f * std::sin(tiempo * 3.0f + v * 6.28f);
+            return {255.0f * brasa, 120.0f * brasa, 30.0f * brasa};
+        }
+        float f = 0.78f + v * 0.32f;
+        return {112.0f * f, 47.0f * f, 40.0f * f};
+    }
+
+    switch (tipo) {
+        case TIERRA: {
+            // Tierra del bioma con motas más claras y grumos oscuros.
+            float f = 0.82f + v * 0.30f;
+            if (v2 > 0.87f) f *= 0.72f;               // grumo oscuro
+            return {TIERRA_RGB[bioma][0] * f, TIERRA_RGB[bioma][1] * f, TIERRA_RGB[bioma][2] * f};
+        }
+        case PASTO: {
+            // Cuerpo de tierra con capa superior del pasto del bioma
+            // (nieve blanca, hierba corrupta púrpura, arena...).
+            if (subY < 3 || (subY == 3 && v > 0.45f)) {
+                float f = 0.80f + v * 0.35f;
+                return {PASTO_RGB[bioma][0] * f, PASTO_RGB[bioma][1] * f, PASTO_RGB[bioma][2] * f};
+            }
+            float f = 0.82f + v * 0.30f;
+            return {TIERRA_RGB[bioma][0] * f, TIERRA_RGB[bioma][1] * f, TIERRA_RGB[bioma][2] * f};
+        }
+        case PIEDRA: {
+            // Gris del bioma con granulado y grietas ocasionales.
+            float f = 0.80f + v * 0.32f;
+            if (v2 > 0.93f) f *= 0.62f;               // grieta
+            return {PIEDRA_RGB[bioma][0] * f, PIEDRA_RGB[bioma][1] * f, PIEDRA_RGB[bioma][2] * f};
+        }
+        case MINERAL: {
+            // Piedra con gemas turquesa incrustadas que destellan.
+            if (v > 0.62f) {
+                float brillo = 0.85f + 0.35f * v2;
+                return {66.0f * brillo, 224.0f * brillo, 198.0f * brillo};
+            }
+            float f = 0.78f + v * 0.28f;
+            return {120.0f * f, 124.0f * f, 128.0f * f};
+        }
+        case LADRILLO: {
+            // Aparejo de ladrillos 8×4 px con juntas de mortero oscuras.
+            int fila = wpy >> 2;
+            int cx = (wpx + ((fila & 1) ? 4 : 0)) & 7;
+            bool junta = ((wpy & 3) == 0) || (cx == 0);
+            if (junta) return {74.0f, 66.0f, 62.0f};
+            float f = 0.86f + v * 0.20f;
+            return {138.0f * f, 116.0f * f, 108.0f * f};
+        }
+        case MADERA: {
+            // Veta vertical: franjas por columna de texel.
+            float franja = ((txl % 3) == 0) ? 0.78f : 1.0f;
+            float f = (0.85f + v * 0.20f) * franja;
+            return {105.0f * f, 82.0f * f, 63.0f * f};
+        }
+        case HOJA: {
+            // Follaje del bioma moteado, con huecos oscuros entre hojas
+            // (en el desierto este tile es el cuerpo del cactus).
+            float f = 0.75f + v * 0.45f;
+            if (v2 > 0.88f) f *= 0.55f;
+            return {HOJA_RGB[bioma][0] * f, HOJA_RGB[bioma][1] * f, HOJA_RGB[bioma][2] * f};
+        }
+        case LAVA: {
+            // Lava incandescente con oleaje lento: brilla sola (no depende
+            // del lightmap para verse — es emisora).
+            float onda = 0.80f + 0.20f * std::sin(tiempo * 2.1f + wpx * 0.09f + v * 6.28f);
+            float f = onda * (0.85f + v * 0.30f);
+            return {253.0f * f, (110.0f + 60.0f * v2) * f, 24.0f * f};
+        }
+        default:
+            return {0.0f, 0.0f, 0.0f};
+    }
+}
+
+/** colorFondo — color del muro de fondo (más oscuro que el tile equivalente). */
+static ColorF colorFondo(uint8_t fondo, int wpx, int wpy, uint32_t semilla,
+                         uint8_t bioma, bool infierno) {
+    int txl = wpx >> 1, tyl = wpy >> 1;
+    float v = hashAFloat(mezclarHash(static_cast<uint32_t>(txl) ^ 0xF0F0u,
+                                     static_cast<uint32_t>(tyl), semilla));
+    float f = 0.85f + v * 0.25f;
+
+    // En el infierno todos los muros arden en rojo oscuro.
+    if (infierno && (fondo == FONDO_TIERRA || fondo == FONDO_PIEDRA))
+        return {56.0f * f, 26.0f * f, 22.0f * f};
+
+    switch (fondo) {
+        case FONDO_TIERRA: {
+            // El muro de tierra hereda un tinte del bioma de su columna.
+            ColorF base = {70.0f, 50.0f, 38.0f};
+            if (bioma == BIOMA_NIEVE)      base = {56.0f, 62.0f, 78.0f};
+            if (bioma == BIOMA_CORRUPCION) base = {54.0f, 40.0f, 58.0f};
+            if (bioma == BIOMA_DESIERTO)   base = {96.0f, 80.0f, 54.0f};
+            return {base.r * f, base.g * f, base.b * f};
+        }
+        case FONDO_PIEDRA:   return {52.0f * f, 52.0f * f, 60.0f * f};
+        case FONDO_LADRILLO: return {60.0f * f, 50.0f * f, 46.0f * f};
+        case FONDO_MADERA: {
+            // Tablones verticales: franja oscura entre tabla y tabla.
+            float tabla = ((wpx >> 2) % 2 == 0) ? 1.0f : 0.82f;
+            return {86.0f * f * tabla, 62.0f * f * tabla, 40.0f * f * tabla};
+        }
+        default:             return {0.0f, 0.0f, 0.0f};
+    }
+}
+
+// cielo nocturno: degradado, campo de estrellas fijo por semilla (con titileo) y una luna con cráteres.
+static ColorF colorCielo(int wpx, int wpy, int altoMundoPx, uint32_t semilla, float tiempo) {
+    // Degradado vertical: azul muy oscuro arriba → azul horizonte abajo.
+    float t = std::max(0.0f, std::min(1.0f, static_cast<float>(wpy) / (altoMundoPx * 0.45f)));
+    ColorF c = {6.0f + 22.0f * t, 8.0f + 30.0f * t, 26.0f + 58.0f * t};
+
+    // Luna: disco fijo en el mundo con sombra de cráteres.
+    const float lunaX = altoMundoPx * 1.1f, lunaY = altoMundoPx * 0.07f, radioLuna = 26.0f;
+    float dxl = wpx - lunaX, dyl = wpy - lunaY;
+    float dl = std::sqrt(dxl * dxl + dyl * dyl);
+    if (dl < radioLuna) {
+        float borde = std::min(1.0f, (radioLuna - dl) / 3.0f);
+        float crater = hashAFloat(mezclarHash(static_cast<uint32_t>(wpx) >> 2,
+                                              static_cast<uint32_t>(wpy) >> 2, 0xC0FFEEu));
+        float f = (crater > 0.8f) ? 0.78f : 1.0f;
+        return {c.r + (225.0f * f - c.r) * borde,
+                c.g + (228.0f * f - c.g) * borde,
+                c.b + (205.0f * f - c.b) * borde};
+    }
+
+    // Estrellas: una por celda de 8×8 px con probabilidad baja, titilando.
+    uint32_t celda = mezclarHash(static_cast<uint32_t>(wpx) >> 3,
+                                 static_cast<uint32_t>(wpy) >> 3, semilla ^ 0x57A25u);
+    if ((celda & 0x3F) == 0) {                       // ~1.5% de las celdas
+        int sx = static_cast<int>((celda >> 8) & 7), sy = static_cast<int>((celda >> 11) & 7);
+        if ((wpx & 7) == sx && (wpy & 7) == sy) {
+            float titileo = 0.55f + 0.45f * std::sin(tiempo * 2.0f + (celda & 0xFF));
+            float brillo = 120.0f + 135.0f * hashAFloat(celda) * titileo;
+            return {brillo, brillo, brillo * 0.92f};
+        }
+    }
+    return c;
+}
+
+// ----------------------------------------------------------------
+// Composición principal
+// ----------------------------------------------------------------
+
+void componerFrame(const Mundo& m, const Camara& cam, double tiempo,
+                   const Config& cfg, uint32_t* fb) {
+    const int w = cfg.w, h = cfg.h;
+    const float tiempoF = static_cast<float>(tiempo);
+    const int altoMundoPx = m.alto * TILE_PX;
+
+    // La cámara se redondea a píxel entero para que el pixel art no vibre.
+    const int camPxX = static_cast<int>(std::floor(cam.x * TILE_PX));
+    const int camPxY = static_cast<int>(std::floor(cam.y * TILE_PX));
+
+    // ---- Pasada 1: fondo + tiles sólidos, píxel por píxel ----
+    for (int py = 0; py < h; ++py) {
+        int wpy = camPxY + py;
+        int ty  = wpy >> 3;              // wpy / TILE_PX
+        for (int px = 0; px < w; ++px) {
+            int wpx = camPxX + px;
+            int tx  = wpx >> 3;
+
+            uint8_t tipo  = m.M_tipo.enOr(tx, ty, AIRE);
+            uint8_t fondo = m.M_fondo.enOr(tx, ty, FONDO_NADA);
+            uint8_t bioma = m.bioma[std::max(0, std::min(m.ancho - 1, tx))];
+            bool infierno = ty > static_cast<int>(m.alto * FRACCION_INFIERNO);
+
+            ColorF c;
+            if (tipo != AIRE) {
+                c = texturaTile(tipo, wpx, wpy, m.semilla, tiempoF, bioma, infierno);
+
+                // Contorno oscuro en cada cara expuesta al aire — el borde
+                // negro característico de los bloques de Terraria.
+                int subX = wpx & 7, subY = wpy & 7;
+                bool contorno =
+                    (subX == 0 && m.M_tipo.enOr(tx - 1, ty, AIRE) == AIRE) ||
+                    (subX == 7 && m.M_tipo.enOr(tx + 1, ty, AIRE) == AIRE) ||
+                    (subY == 0 && m.M_tipo.enOr(tx, ty - 1, AIRE) == AIRE) ||
+                    (subY == 7 && m.M_tipo.enOr(tx, ty + 1, AIRE) == AIRE);
+                if (contorno && tipo != LAVA) { c.r *= 0.38f; c.g *= 0.38f; c.b *= 0.38f; }
+            } else if (fondo != FONDO_NADA) {
+                c = colorFondo(fondo, wpx, wpy, m.semilla, bioma, infierno);
+            } else {
+                c = colorCielo(wpx, wpy, altoMundoPx, m.semilla, tiempoF);
+                // Briznas de pasto que desbordan sobre el aire, como en el juego.
+                int subY = wpy & 7;
+                if (subY >= 6 && m.M_tipo.enOr(tx, ty + 1, AIRE) == PASTO) {
+                    uint32_t hb = mezclarHash(static_cast<uint32_t>(wpx), 0x9E37u, m.semilla);
+                    if ((hb & 3u) != 0u || subY == 7) {
+                        float f = 0.75f + hashAFloat(hb) * 0.4f;
+                        c = {PASTO_RGB[bioma][0] * f, PASTO_RGB[bioma][1] * f,
+                             PASTO_RGB[bioma][2] * f};
+                    }
+                }
+            }
+
+            fb[py * w + px] = empaquetarARGB(c.r, c.g, c.b);
+        }
+    }
 }
 
 // ----------------------------------------------------------------

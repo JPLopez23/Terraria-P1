@@ -4,14 +4,18 @@
  *
  * Universidad del Valle de Guatemala · Computación Paralela y Distribuida.
  *
- * En este punto: ventana SDL2, framebuffer propio, overlay de FPS y salida
- * con ESC. El mundo y la luz llegan en los siguientes commits.
+ * En este punto: se genera un mundo con la semilla dada y se dibuja en
+ * pantalla. La iluminación y el ciclo de animación llegan después.
  */
 #include "config.hpp"
+#include "mundo.hpp"
+#include "camara.hpp"
 #include "render.hpp"
+#include "ruido.hpp"
 
 #include <cstdint>
 #include <cstdio>
+#include <ctime>
 #include <memory>
 #include <string>
 #include <vector>
@@ -21,6 +25,15 @@ int main(int argc, char** argv) {
     Config cfg;
     int codigo = parsearArgs(argc, argv, cfg);
     if (codigo != SALIDA_OK) return codigo;
+
+    // Semilla aleatoria salvo que el usuario haya fijado una con --seed
+    // (fijarla es lo que hace reproducibles las mediciones más adelante).
+    if (!cfg.seed_fija)
+        cfg.seed = mezclarHash(static_cast<uint32_t>(std::time(nullptr)),
+                               static_cast<uint32_t>(std::clock()), 0x5EEDu);
+
+    std::printf("Terraria Forge | mundo %dx%d tiles | semilla %u%s\n",
+                cfg.grid_w, cfg.grid_h, cfg.seed, cfg.headless ? " | headless" : "");
 
     // Ventana solo si no es headless — el modo headless aísla el costo de
     // SDL y mide únicamente el cómputo.
@@ -35,6 +48,11 @@ int main(int argc, char** argv) {
     }
 
     std::vector<uint32_t> framebuffer(static_cast<size_t>(cfg.w) * cfg.h, 0);
+
+    // Por ahora el mundo se genera una sola vez, antes de entrar al ciclo.
+    Mundo mundo = generarMundo(cfg, cfg.seed);
+    Camara camara;
+    camara.reiniciar(mundo, cfg);
 
     const double tInicio = omp_get_wtime();
     double msVentana = 0.0;      // acumulador de la ventana deslizante de FPS
@@ -51,16 +69,7 @@ int main(int argc, char** argv) {
         if (pantalla && pantalla->procesarEventos()) salir = true;
         if (cfg.duration > 0.0 && tiempoGlobal >= cfg.duration) salir = true;
 
-        // Degradado de prueba: confirma que el framebuffer llega a la ventana
-        // con los canales en el orden correcto (ARGB8888).
-        for (int py = 0; py < cfg.h; ++py) {
-            for (int px = 0; px < cfg.w; ++px) {
-                uint32_t r = static_cast<uint32_t>(px * 255 / cfg.w);
-                uint32_t g = static_cast<uint32_t>(py * 255 / cfg.h);
-                framebuffer[static_cast<size_t>(py) * cfg.w + px] =
-                    0xFF000000u | (r << 16) | (g << 8) | 90u;
-            }
-        }
+        componerFrame(mundo, camara, tiempoGlobal, cfg, framebuffer.data());
 
         char hud[64];
         std::snprintf(hud, sizeof(hud), "FPS %.1f", fps);
