@@ -5,8 +5,19 @@
 # ============================================================
 
 CXX      = g++
-CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -fopenmp -march=native
-LDFLAGS  = -fopenmp
+CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -march=native
+LDFLAGS  =
+
+# OpenMP: en Linux/MinGW basta -fopenmp; en macOS el "g++" del sistema es
+# clang y necesita libomp de Homebrew (brew install libomp).
+ifeq ($(shell uname -s),Darwin)
+    OMP_DIR    = $(shell brew --prefix libomp 2>/dev/null)
+    CXXFLAGS  += -Xpreprocessor -fopenmp -I$(OMP_DIR)/include
+    LDFLAGS   += -L$(OMP_DIR)/lib -lomp
+else
+    CXXFLAGS  += -fopenmp
+    LDFLAGS   += -fopenmp
+endif
 
 SRC = $(wildcard src/*.cpp)
 OBJ = $(SRC:.cpp=.o)
@@ -31,7 +42,9 @@ all: $(EXE) $(DLL)
 $(DLL): $(SDL_DIR)/bin/SDL2.dll
 	cp -f $< $@ || copy /Y "$(subst /,\,$<)" $@
 else
-    CXXFLAGS += $(shell sdl2-config --cflags) -DSDL_MAIN_HANDLED
+    # sdl2-config apunta a .../include/SDL2; el prefijo se agrega aparte
+    # para que <SDL2/SDL.h> resuelva (Homebrew no está en la ruta por defecto).
+    CXXFLAGS += $(shell sdl2-config --cflags) -I$(shell sdl2-config --prefix)/include -DSDL_MAIN_HANDLED
     LDLIBS   = $(shell sdl2-config --libs)
     EXE      = terraria-forge
 all: $(EXE)
