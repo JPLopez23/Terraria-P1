@@ -1,10 +1,12 @@
 #include "config.hpp"
 #include "mundo.hpp"
 #include "fuentes.hpp"
+#include "luz.hpp"
 #include "camara.hpp"
 #include "render.hpp"
 #include "ruido.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
@@ -81,6 +83,11 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Lightmap alineado a pantalla: más fino que los tiles: §2.5 del plan.
+    Lightmap L;
+    L.redimensionar(cfg.w / cfg.escala_luz, cfg.h / cfg.escala_luz);
+    L.escala = static_cast<float>(cfg.escala_luz) / TILE_PX;   // tiles por celda
+
     std::vector<uint32_t> framebuffer(static_cast<size_t>(cfg.w) * cfg.h, 0);
 
     Mundo mundo;
@@ -97,6 +104,7 @@ int main(int argc, char** argv) {
     double msVentana = 0.0;      // acumulador de la ventana deslizante de FPS
     int    framesVentana = 0;
     double fps = 0.0;
+    double ultimoLog = 0.0;
     long   frames = 0;
     bool   salir = false;
     bool   capturaHecha = false;
@@ -111,7 +119,18 @@ int main(int argc, char** argv) {
         if (pantalla && pantalla->procesarEventos()) salir = true;
         if (cfg.duration > 0.0 && tiempoGlobal >= cfg.duration) salir = true;
 
+        actualizarParpadeo(fuentes, tiempoGlobal, 1.0f);
         camara.actualizar(static_cast<float>(dt), mundo);
+
+        // El lightmap sigue a la cámara, alineado al mismo píxel entero que
+        // usa el render: si no coincidieran, la luz "nadaría" sobre los tiles.
+        L.origenX = std::floor(camara.x * TILE_PX) / TILE_PX;
+        L.origenY = std::floor(camara.y * TILE_PX) / TILE_PX;
+
+        // El kernel: iluminación por ray tracing: ms_luz 
+        const double tLuz0 = omp_get_wtime();
+        EstadisticasLuz est = calcularIluminacion(mundo, fuentes, L, cfg);
+        const double msLuz = (omp_get_wtime() - tLuz0) * 1000.0;
 
         componerFrame(mundo, camara, tiempoGlobal, cfg, framebuffer.data());
 
@@ -136,6 +155,13 @@ int main(int argc, char** argv) {
             }
         }
         ++frames;
+
+        if (tiempoGlobal - ultimoLog >= 1.0) {
+            ultimoLog = tiempoGlobal;
+            std::printf("FPS %6.1f | luz %7.2f ms | energia %.1f | celdas iluminadas %ld\n",
+                        fps, msLuz, est.energia, est.celdasIluminadas);
+            std::fflush(stdout);
+        }
 
         // Captura de depuración: volcar un frame a BMP y salir.
         if (!cfg.captura.empty() && !capturaHecha && tiempoGlobal >= cfg.captura_t) {

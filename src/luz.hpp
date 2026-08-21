@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mundo.hpp"
+#include "fuentes.hpp"
 #include "config.hpp"
 
 #include <vector>
@@ -32,3 +33,7 @@ struct EstadisticasLuz {
  // trazarRayo : traza un rayo desde: x0,y0 hasta: x1,y1 en coordenadas de tile.
 float trazarRayo(const float* M_bloqueo,
                  float x0, float y0, float x1, float y1, int G_w, int G_h);
+
+ // calcularIluminacion : calcula el lightmap completo para el frame actual.
+EstadisticasLuz calcularIluminacion(const Mundo& m, const std::vector<Fuente>& fuentes,
+                                    Lightmap& L, const Config& cfg);

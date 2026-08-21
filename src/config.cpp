@@ -14,6 +14,8 @@ void imprimirUso(const char* nombrePrograma) {
         "  --h <int>           alto de ventana en px (>=480, default 720)\n"
         "  --grid <AxB>        tamano del mundo en tiles (>=64x64, default 400x240)\n"
         "  --radio <int>       alcance de la luz en tiles (1..256, default 24)\n"
+        "  --muestras <int>    muestras de sombra suave K (1..16, default 4)\n"
+        "  --escala-luz <int>  px por celda de lightmap {1,2,4,8} (default 2; 4-8 = mas FPS)\n"
         "  --seed <uint>       semilla del mundo (default: aleatoria)\n"
         "  --duration <float>  segundos antes de salir (default: infinito)\n"
         "  --headless          sin ventana: mide solo el computo\n"
@@ -110,6 +112,18 @@ int parsearArgs(int argc, char** argv, Config& cfg) {
             const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
             if (!leerEntero(t, a, 1, 256, &v)) return SALIDA_ERROR_VALOR;
             cfg.radio = static_cast<int>(v);
+        } else if (std::strcmp(a, "--muestras") == 0) {
+            const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
+            if (!leerEntero(t, a, 1, 16, &v)) return SALIDA_ERROR_VALOR;
+            cfg.muestras = static_cast<int>(v);
+        } else if (std::strcmp(a, "--escala-luz") == 0) {
+            const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
+            if (!leerEntero(t, a, 1, 8, &v)) return SALIDA_ERROR_VALOR;
+            if (v != 1 && v != 2 && v != 4 && v != 8) {
+                std::fprintf(stderr, "Error: --escala-luz debe ser 1, 2, 4 u 8.\n");
+                return SALIDA_ERROR_VALOR;
+            }
+            cfg.escala_luz = static_cast<int>(v);
         } else if (std::strcmp(a, "--seed") == 0) {
             const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
             errno = 0;

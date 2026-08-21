@@ -19,6 +19,10 @@ struct Config {
     int         grid_w      = 400;      // --grid AxB: ancho del mundo en tiles
     int         grid_h      = 240;      // --grid AxB: alto del mundo en tiles
     int         radio       = 24;       // --radio: alcance de cada fuente en tiles
+    int         muestras    = 4;        // --muestras: K muestras de sombra suave por fuente
+    int         escala_luz  = 2;        // --escala-luz: píxeles por celda de lightmap {1,2,4,8}
+                                        // 2 = gradientes finos, ~45-60 FPS en paralelo;
+                                        // 4 u 8 para más FPS, 1 para estresar el kernel
     uint32_t    seed        = 0;        // --seed: semilla del mundo: 0 = aleatoria
     bool        seed_fija   = false;    // true si el usuario pasó --seed
     double      duration    = 0.0;      // --duration: segundos antes de salir: 0 = infinito
