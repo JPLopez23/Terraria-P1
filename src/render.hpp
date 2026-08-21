@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mundo.hpp"
+#include "fuentes.hpp"
 #include "luz.hpp"
 #include "camara.hpp"
 #include "config.hpp"
@@ -40,8 +41,8 @@ private:
 };
 
  // componerFrame : dibuja el mundo completo al framebuffer.
-void componerFrame(const Mundo& m, const Lightmap& L, const Camara& cam,
-                   double tiempo, const Config& cfg, uint32_t* fb);
+void componerFrame(const Mundo& m, const Lightmap& L, const std::vector<Fuente>& fuentes,
+                   const Camara& cam, double tiempo, const Config& cfg, uint32_t* fb);
 
  // dibujarTexto : texto con la fuente bitmap 5×7 embebida: overlay de FPS.
 void dibujarTexto(uint32_t* fb, int w, int h, int x, int y, int escala,

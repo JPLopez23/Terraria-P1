@@ -207,10 +207,36 @@ static inline ColorF muestrearLuz(const Lightmap& L, int px, int py, int escalaP
 }
 
 // Composición principal
+static void dibujarAntorcha(uint32_t* fb, int w, int h, const Fuente& f,
+                            float camPxX, float camPxY, float tiempo) {
+    int sx = static_cast<int>(f.x * TILE_PX - camPxX);
+    int sy = static_cast<int>(f.y * TILE_PX - camPxY);
+    if (sx < -8 || sx >= w + 8 || sy < -8 || sy >= h + 8) return;
 
+    auto poner = [&](int px, int py, uint32_t c) {
+        if (px >= 0 && px < w && py >= 0 && py < h) fb[py * w + px] = c;
+    };
 
-void componerFrame(const Mundo& m, const Lightmap& L, const Camara& cam,
-                   double tiempo, const Config& cfg, uint32_t* fb) {
+    // Palito de madera inclinado: 2 px de ancho, 4 de alto.
+    for (int k = 0; k < 4; ++k) {
+        poner(sx + (k >> 1), sy + 2 - k, 0xFF6E5232u);
+        poner(sx + 1 + (k >> 1), sy + 2 - k, 0xFF5A421Fu);
+    }
+    // Llama: 3×4 px que respira con la intensidad del parpadeo.
+    float chispa = 0.6f + 0.4f * std::sin(tiempo * 13.0f + f.fase * 5.0f);
+    int altoLlama = 3 + (chispa > 0.8f ? 1 : 0);
+    for (int k = 0; k < altoLlama; ++k) {
+        float t = static_cast<float>(k) / altoLlama;   // 0 base, 1 punta
+        uint32_t c = empaquetarARGB(255.0f,
+                                    200.0f * (1.0f - t * 0.4f) * f.intensidad,
+                                    60.0f * (1.0f - t) * f.intensidad);
+        poner(sx + 2, sy - 1 - k, c);
+        if (k < 2) { poner(sx + 1, sy - 1 - k, c); poner(sx + 3, sy - 1 - k, c); }
+    }
+}
+
+void componerFrame(const Mundo& m, const Lightmap& L, const std::vector<Fuente>& fuentes,
+                   const Camara& cam, double tiempo, const Config& cfg, uint32_t* fb) {
     const int w = cfg.w, h = cfg.h;
     const float tiempoF = static_cast<float>(tiempo);
     const int altoMundoPx = m.alto * TILE_PX;
@@ -268,6 +294,13 @@ void componerFrame(const Mundo& m, const Lightmap& L, const Camara& cam,
 
             fb[py * w + px] = empaquetarARGB(c.r * luz.r, c.g * luz.g, c.b * luz.b);
         }
+    }
+
+    // Pasada 3: sprites de antorcha: la llama sobre la luz calculada 
+    for (const Fuente& f : fuentes) {
+        if (f.clase != FUENTE_ANTORCHA || f.intensidad <= 0.01f) continue;
+        dibujarAntorcha(fb, w, h, f, static_cast<float>(camPxX), static_cast<float>(camPxY),
+                        tiempoF);
     }
 }
 
