@@ -1,5 +1,6 @@
 #include "config.hpp"
 #include "mundo.hpp"
+#include "fuentes.hpp"
 #include "camara.hpp"
 #include "render.hpp"
 #include "ruido.hpp"
@@ -13,16 +14,48 @@
 #include <omp.h>
 
  // generarMundoValidado : worldgen con reintento de semilla: nunca falla.
-static uint32_t generarMundoValidado(const Config& cfg, uint32_t semilla, Mundo& mundo) {
-    // El terreno inválido se reintenta muchas veces: es barato y es raro.
+static uint32_t generarMundoValidado(const Config& cfg, uint32_t semilla,
+                                     Mundo& mundo, std::vector<Fuente>& fuentes) {
+    // El terreno inválido se reintenta muchas veces: es barato y raro;
+    int mejorCuenta = -1;
+    Mundo mejorMundo;
+    std::vector<Fuente> mejorFuentes;
+    uint32_t mejorSemilla = semilla;
+    int intentosFuentes = 0;
+
     for (int intento = 0; intento < 64; ++intento) {
         mundo = generarMundo(cfg, semilla);
-        if (validarTerreno(mundo)) return semilla;
+        if (validarTerreno(mundo)) {
+            fuentes = colocarFuentes(mundo, cfg);
+            int cuenta = static_cast<int>(fuentes.size());
+            if (cuenta >= cfg.n) return semilla;
+            if (cuenta > mejorCuenta) {
+                mejorCuenta = cuenta;
+                mejorMundo = mundo;
+                mejorFuentes = fuentes;
+                mejorSemilla = semilla;
+            }
+            if (++intentosFuentes >= 6) break;
+            std::fprintf(stderr,
+                "Semilla %u: solo %d de %d fuentes; reintentando con otra semilla.\n",
+                semilla, cuenta, cfg.n);
+        }
         semilla = mezclarHash(semilla, 0xBADA55u, static_cast<uint32_t>(intento + 1));
     }
-    // Nunca fallar: el screensaver corre con el último mundo generado.
-    std::fprintf(stderr, "Advertencia: ninguna semilla paso la validacion del terreno.\n");
-    return semilla;
+
+    // Nunca fallar: el screensaver corre con las fuentes que sí caben.
+    if (mejorCuenta >= 0) {
+        mundo = mejorMundo;
+        fuentes = mejorFuentes;
+        std::fprintf(stderr,
+            "Advertencia: el mundo solo aloja %d de las %d fuentes pedidas.\n",
+            mejorCuenta, cfg.n);
+    } else {
+        // Ni un terreno pasó la validación en 64 semillas no debería
+        // ocurrir: se usa el último mundo generado tal cual.
+        fuentes = colocarFuentes(mundo, cfg);
+    }
+    return mejorSemilla;
 }
 
 int main(int argc, char** argv) {
@@ -51,9 +84,10 @@ int main(int argc, char** argv) {
     std::vector<uint32_t> framebuffer(static_cast<size_t>(cfg.w) * cfg.h, 0);
 
     Mundo mundo;
-    uint32_t semillaCiclo = generarMundoValidado(cfg, cfg.seed, mundo);
-    std::printf("Mundo con semilla %u: %dx%d tiles.\n",
-                semillaCiclo, mundo.ancho, mundo.alto);
+    std::vector<Fuente> fuentes;
+    uint32_t semillaCiclo = generarMundoValidado(cfg, cfg.seed, mundo, fuentes);
+    std::printf("Mundo con semilla %u: %zu fuentes de luz.\n",
+                semillaCiclo, fuentes.size());
 
     Camara camara;
     camara.reiniciar(mundo, cfg);
@@ -82,7 +116,7 @@ int main(int argc, char** argv) {
         componerFrame(mundo, camara, tiempoGlobal, cfg, framebuffer.data());
 
         char hud[64];
-        std::snprintf(hud, sizeof(hud), "FPS %.1f", fps);
+        std::snprintf(hud, sizeof(hud), "FPS %.1f | N %d", fps, cfg.n);
         dibujarTexto(framebuffer.data(), cfg.w, cfg.h, 10, 10, 2, hud, 0xFFFFFFFFu);
 
         // Presentación: SOLO el hilo maestro toca SDL: no es thread-safe.

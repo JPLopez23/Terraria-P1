@@ -1,6 +1,3 @@
-/**
- * config.cpp — parseo defensivo de la línea de comandos (ver config.hpp).
- */
 #include "config.hpp"
 
 #include <cerrno>
@@ -11,9 +8,12 @@
 void imprimirUso(const char* nombrePrograma) {
     std::fprintf(stderr,
         "Uso: %s [opciones]\n"
+        "  --n <int>           fuentes de luz a renderizar (0..1000000, default 150)\n"
+        "                      0 = solo luz ambiental; sube N para estresar la maquina\n"
         "  --w <int>           ancho de ventana en px (>=640, default 1280)\n"
         "  --h <int>           alto de ventana en px (>=480, default 720)\n"
         "  --grid <AxB>        tamano del mundo en tiles (>=64x64, default 400x240)\n"
+        "  --radio <int>       alcance de la luz en tiles (1..256, default 24)\n"
         "  --seed <uint>       semilla del mundo (default: aleatoria)\n"
         "  --duration <float>  segundos antes de salir (default: infinito)\n"
         "  --headless          sin ventana: mide solo el computo\n"
@@ -25,7 +25,7 @@ void imprimirUso(const char* nombrePrograma) {
         nombrePrograma);
 }
 
-// convierte texto a entero con validación estricta.
+ // leerEntero : convierte texto a entero con validación estricta.
 static bool leerEntero(const char* texto, const char* flag,
                        long minimo, long maximo, long* destino) {
     errno = 0;
@@ -43,7 +43,7 @@ static bool leerEntero(const char* texto, const char* flag,
     return true;
 }
 
-// convierte texto a double con validación estricta.
+ // leerFlotante : convierte texto a double con validación estricta.
 static bool leerFlotante(const char* texto, const char* flag,
                          double minimoExclusivo, double* destino) {
     errno = 0;
@@ -78,6 +78,12 @@ int parsearArgs(int argc, char** argv, Config& cfg) {
         if (std::strcmp(a, "--help") == 0 || std::strcmp(a, "-h") == 0) {
             imprimirUso(argv[0]);
             return SALIDA_ERROR_USO;
+        } else if (std::strcmp(a, "--n") == 0) {
+            const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
+            // 0 = solo luz ambiental; el tope alto existe para poder llevar
+            // la máquina al límite: el costo crece ~linealmente con N.
+            if (!leerEntero(t, a, 0, 1000000, &v)) return SALIDA_ERROR_VALOR;
+            cfg.n = static_cast<int>(v);
         } else if (std::strcmp(a, "--w") == 0) {
             const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
             if (!leerEntero(t, a, 640, 7680, &v)) return SALIDA_ERROR_VALOR;
@@ -100,6 +106,10 @@ int parsearArgs(int argc, char** argv, Config& cfg) {
             if (!leerEntero(sep + 1,        "--grid (alto)",  64, 16384, &gb)) return SALIDA_ERROR_VALOR;
             cfg.grid_w = static_cast<int>(ga);
             cfg.grid_h = static_cast<int>(gb);
+        } else if (std::strcmp(a, "--radio") == 0) {
+            const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
+            if (!leerEntero(t, a, 1, 256, &v)) return SALIDA_ERROR_VALOR;
+            cfg.radio = static_cast<int>(v);
         } else if (std::strcmp(a, "--seed") == 0) {
             const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
             errno = 0;
