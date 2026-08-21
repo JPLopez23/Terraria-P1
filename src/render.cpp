@@ -1,11 +1,3 @@
-/**
- * render.cpp — composición del frame con estética Terraria (ver render.hpp).
- *
- * Los colores están calcados de la paleta clásica de Terraria (tierra
- * 151,107,75 · pasto 28,216,94 · piedra gris...) y cada tile se pinta con
- * variación determinista por posición — motas, granulado, vetas — en
- * texeles de 2×2 px, el "pixel art chunky" característico del juego.
- */
 #include "render.hpp"
 #include "ruido.hpp"
 
@@ -17,11 +9,7 @@
 #include <cstring>
 #include <stdexcept>
 
-// ----------------------------------------------------------------
 // Utilidades de color
-// ----------------------------------------------------------------
-
-/** ColorF — color de trabajo en punto flotante 0..255 por canal. */
 struct ColorF { float r, g, b; };
 
 static inline uint32_t empaquetarARGB(float r, float g, float b) {
@@ -33,19 +21,13 @@ static inline uint32_t empaquetarARGB(float r, float g, float b) {
                        |  static_cast<uint32_t>(ib);
 }
 
-// ----------------------------------------------------------------
-// Textura procedural por tile — el corazón del "se ve como Terraria"
-// ----------------------------------------------------------------
-
-// Paletas por bioma para los tiles "vivos" (los demás tipos comparten color
-// en todo el mundo, igual que en Terraria).
-//                                        bosque           nieve            corrupción       desierto
+// Textura procedural por tile : el corazón del "se ve como Terraria"
 static const float TIERRA_RGB[NUM_BIOMAS][3] = {{151,107, 75}, {174,184,204}, {109, 80,102}, {211,180,125}};
 static const float PASTO_RGB [NUM_BIOMAS][3] = {{ 28,216, 94}, {235,245,255}, {150, 72,208}, {224,202,144}};
 static const float PIEDRA_RGB[NUM_BIOMAS][3] = {{128,128,132}, {126,140,160}, { 98, 88,116}, {166,146,116}};
 static const float HOJA_RGB  [NUM_BIOMAS][3] = {{ 44,142, 66}, {200,216,235}, {120, 62,168}, { 72,158, 74}};
 
-// color base de un píxel dentro de un tile.
+ // texturaTile : color base de un píxel dentro de un tile.
 static ColorF texturaTile(uint8_t tipo, int wpx, int wpy, uint32_t semilla, float tiempo,
                           uint8_t bioma, bool infierno) {
     // Texel de 2×2 px: el grano del pixel art de Terraria.
@@ -54,7 +36,7 @@ static ColorF texturaTile(uint8_t tipo, int wpx, int wpy, uint32_t semilla, floa
                                       static_cast<uint32_t>(tyl), semilla));
     float v2 = hashAFloat(mezclarHash(static_cast<uint32_t>(txl) * 3u + 7u,
                                       static_cast<uint32_t>(tyl), semilla ^ 0x5A5Au));
-    int subY = wpy & 7;   // fila dentro del tile (0 arriba)
+    int subY = wpy & 7;   // fila dentro del tile: 0 arriba
 
     // Infierno: la roca del fondo del mundo es piedra ardiente con brasas
     // incrustadas que brillan solas.
@@ -76,7 +58,7 @@ static ColorF texturaTile(uint8_t tipo, int wpx, int wpy, uint32_t semilla, floa
         }
         case PASTO: {
             // Cuerpo de tierra con capa superior del pasto del bioma
-            // (nieve blanca, hierba corrupta púrpura, arena...).
+            // nieve blanca, hierba corrupta púrpura, arena....
             if (subY < 3 || (subY == 3 && v > 0.45f)) {
                 float f = 0.80f + v * 0.35f;
                 return {PASTO_RGB[bioma][0] * f, PASTO_RGB[bioma][1] * f, PASTO_RGB[bioma][2] * f};
@@ -116,14 +98,14 @@ static ColorF texturaTile(uint8_t tipo, int wpx, int wpy, uint32_t semilla, floa
         }
         case HOJA: {
             // Follaje del bioma moteado, con huecos oscuros entre hojas
-            // (en el desierto este tile es el cuerpo del cactus).
+            // en el desierto este tile es el cuerpo del cactus.
             float f = 0.75f + v * 0.45f;
             if (v2 > 0.88f) f *= 0.55f;
             return {HOJA_RGB[bioma][0] * f, HOJA_RGB[bioma][1] * f, HOJA_RGB[bioma][2] * f};
         }
         case LAVA: {
-            // Lava incandescente con oleaje lento: brilla sola (no depende
-            // del lightmap para verse — es emisora).
+            // Lava incandescente con oleaje lento: brilla sola no depende
+            // del lightmap para verse : es emisora.
             float onda = 0.80f + 0.20f * std::sin(tiempo * 2.1f + wpx * 0.09f + v * 6.28f);
             float f = onda * (0.85f + v * 0.30f);
             return {253.0f * f, (110.0f + 60.0f * v2) * f, 24.0f * f};
@@ -133,7 +115,7 @@ static ColorF texturaTile(uint8_t tipo, int wpx, int wpy, uint32_t semilla, floa
     }
 }
 
-/** colorFondo — color del muro de fondo (más oscuro que el tile equivalente). */
+/** colorFondo : color del muro de fondo: más oscuro que el tile equivalente. */
 static ColorF colorFondo(uint8_t fondo, int wpx, int wpy, uint32_t semilla,
                          uint8_t bioma, bool infierno) {
     int txl = wpx >> 1, tyl = wpy >> 1;
@@ -165,7 +147,7 @@ static ColorF colorFondo(uint8_t fondo, int wpx, int wpy, uint32_t semilla,
     }
 }
 
-// cielo nocturno: degradado, campo de estrellas fijo por semilla (con titileo) y una luna con cráteres.
+ // colorCielo : cielo nocturno: degradado, campo de estrellas fijo por
 static ColorF colorCielo(int wpx, int wpy, int altoMundoPx, uint32_t semilla, float tiempo) {
     // Degradado vertical: azul muy oscuro arriba → azul horizonte abajo.
     float t = std::max(0.0f, std::min(1.0f, static_cast<float>(wpy) / (altoMundoPx * 0.45f)));
@@ -199,12 +181,36 @@ static ColorF colorCielo(int wpx, int wpy, int altoMundoPx, uint32_t semilla, fl
     return c;
 }
 
-// ----------------------------------------------------------------
-// Composición principal
-// ----------------------------------------------------------------
+ // Lightmap: interpolación bilineal en coordenadas de pantalla
+static inline ColorF muestrearLuz(const Lightmap& L, int px, int py, int escalaPx) {
+    float fx = (px + 0.5f) / escalaPx - 0.5f;
+    float fy = (py + 0.5f) / escalaPx - 0.5f;
+    int x0 = static_cast<int>(std::floor(fx));
+    int y0 = static_cast<int>(std::floor(fy));
+    float ux = fx - x0, uy = fy - y0;
 
-void componerFrame(const Mundo& m, const Camara& cam, double tiempo,
-                   const Config& cfg, uint32_t* fb) {
+    int x1 = x0 + 1, y1 = y0 + 1;
+    x0 = std::max(0, std::min(L.ancho - 1, x0));
+    x1 = std::max(0, std::min(L.ancho - 1, x1));
+    y0 = std::max(0, std::min(L.alto  - 1, y0));
+    y1 = std::max(0, std::min(L.alto  - 1, y1));
+
+    int i00 = y0 * L.ancho + x0, i10 = y0 * L.ancho + x1;
+    int i01 = y1 * L.ancho + x0, i11 = y1 * L.ancho + x1;
+
+    float w00 = (1 - ux) * (1 - uy), w10 = ux * (1 - uy);
+    float w01 = (1 - ux) * uy,       w11 = ux * uy;
+
+    return {L.M_luzR[i00] * w00 + L.M_luzR[i10] * w10 + L.M_luzR[i01] * w01 + L.M_luzR[i11] * w11,
+            L.M_luzG[i00] * w00 + L.M_luzG[i10] * w10 + L.M_luzG[i01] * w01 + L.M_luzG[i11] * w11,
+            L.M_luzB[i00] * w00 + L.M_luzB[i10] * w10 + L.M_luzB[i01] * w01 + L.M_luzB[i11] * w11};
+}
+
+// Composición principal
+
+
+void componerFrame(const Mundo& m, const Lightmap& L, const Camara& cam,
+                   double tiempo, const Config& cfg, uint32_t* fb) {
     const int w = cfg.w, h = cfg.h;
     const float tiempoF = static_cast<float>(tiempo);
     const int altoMundoPx = m.alto * TILE_PX;
@@ -213,7 +219,7 @@ void componerFrame(const Mundo& m, const Camara& cam, double tiempo,
     const int camPxX = static_cast<int>(std::floor(cam.x * TILE_PX));
     const int camPxY = static_cast<int>(std::floor(cam.y * TILE_PX));
 
-    // ---- Pasada 1: fondo + tiles sólidos, píxel por píxel ----
+    // Pasada 1: fondo + tiles sólidos, píxel por píxel 
     for (int py = 0; py < h; ++py) {
         int wpy = camPxY + py;
         int ty  = wpy >> 3;              // wpy / TILE_PX
@@ -230,7 +236,7 @@ void componerFrame(const Mundo& m, const Camara& cam, double tiempo,
             if (tipo != AIRE) {
                 c = texturaTile(tipo, wpx, wpy, m.semilla, tiempoF, bioma, infierno);
 
-                // Contorno oscuro en cada cara expuesta al aire — el borde
+                // Contorno oscuro en cada cara expuesta al aire : el borde
                 // negro característico de los bloques de Terraria.
                 int subX = wpx & 7, subY = wpy & 7;
                 bool contorno =
@@ -255,16 +261,17 @@ void componerFrame(const Mundo& m, const Camara& cam, double tiempo,
                 }
             }
 
-            fb[py * w + px] = empaquetarARGB(c.r, c.g, c.b);
+            // Iluminación: interpolar el lightmap y multiplicar. La lava es
+            // emisora: conserva un piso de luz propio.
+            ColorF luz = muestrearLuz(L, px, py, cfg.escala_luz);
+            if (tipo == LAVA) { luz.r = std::max(luz.r, 0.9f); luz.g = std::max(luz.g, 0.7f); luz.b = std::max(luz.b, 0.4f); }
+
+            fb[py * w + px] = empaquetarARGB(c.r * luz.r, c.g * luz.g, c.b * luz.b);
         }
     }
 }
 
-// ----------------------------------------------------------------
-// Fuente bitmap 5×7 para el overlay de FPS (sin dependencia de SDL_ttf)
-// ----------------------------------------------------------------
-
-// Cada glifo son 7 filas de 5 bits (bit 4 = columna izquierda).
+// Fuente bitmap 5×7 para el overlay de FPS: sin dependencia de SDL_ttf
 static const uint8_t GLIFOS_5X7[][7] = {
     /* 0 */ {0x0E,0x11,0x13,0x15,0x19,0x11,0x0E},
     /* 1 */ {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E},
@@ -305,12 +312,12 @@ static const uint8_t GLIFOS_5X7[][7] = {
     /* : */ {0x00,0x04,0x00,0x00,0x00,0x04,0x00},
     /* . */ {0x00,0x00,0x00,0x00,0x00,0x00,0x04},
     /* | */ {0x04,0x04,0x04,0x04,0x04,0x04,0x04},
-    /* - */ {0x00,0x00,0x00,0x0E,0x00,0x00,0x00},
+    /*: */ {0x00,0x00,0x00,0x0E,0x00,0x00,0x00},
     /* / */ {0x01,0x02,0x02,0x04,0x08,0x08,0x10},
     /* esp */ {0x00,0x00,0x00,0x00,0x00,0x00,0x00},
 };
 
-/** indiceGlifo — posición del carácter en GLIFOS_5X7 (espacio si no existe). */
+/** indiceGlifo : posición del carácter en GLIFOS_5X7: espacio si no existe. */
 static int indiceGlifo(char c) {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'A' && c <= 'Z') return 10 + (c - 'A');
@@ -352,7 +359,7 @@ void dibujarTexto(uint32_t* fb, int w, int h, int x, int y, int escala,
 
 bool volcarBMP(const std::string& ruta, const uint32_t* fb, int w, int h) {
     // BMP de 24 bits sin compresión, filas alineadas a 4 bytes y de abajo
-    // hacia arriba — el formato más simple que abre cualquier visor.
+    // hacia arriba : el formato más simple que abre cualquier visor.
     const int relleno = (4 - (w * 3) % 4) % 4;
     const uint32_t tamImagen = static_cast<uint32_t>((w * 3 + relleno) * h);
     const uint32_t tamArchivo = 54 + tamImagen;
@@ -389,9 +396,7 @@ bool volcarBMP(const std::string& ruta, const uint32_t* fb, int w, int h) {
     return true;
 }
 
-// ----------------------------------------------------------------
-// Pantalla — RAII sobre SDL
-// ----------------------------------------------------------------
+// Pantalla : RAII sobre SDL
 
 Pantalla::Pantalla(const Config& cfg) : ancho(cfg.w), alto(cfg.h) {
     SDL_SetMainReady();
@@ -443,7 +448,7 @@ bool Pantalla::procesarEventos() {
 }
 
 void Pantalla::presentar(const uint32_t* fb) {
-    // Solo el hilo maestro pasa por aquí (SDL no es thread-safe para render).
+    // Solo el hilo maestro pasa por aquí: SDL no es thread-safe para render.
     if (SDL_UpdateTexture(textura, nullptr, fb, ancho * static_cast<int>(sizeof(uint32_t))) != 0)
         std::fprintf(stderr, "SDL_UpdateTexture: %s\n", SDL_GetError());
     if (SDL_RenderCopy(renderer, textura, nullptr, nullptr) != 0)

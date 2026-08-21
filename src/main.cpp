@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
         EstadisticasLuz est = calcularIluminacion(mundo, fuentes, L, cfg);
         const double msLuz = (omp_get_wtime() - tLuz0) * 1000.0;
 
-        componerFrame(mundo, camara, tiempoGlobal, cfg, framebuffer.data());
+        componerFrame(mundo, L, camara, tiempoGlobal, cfg, framebuffer.data());
 
         char hud[64];
         std::snprintf(hud, sizeof(hud), "FPS %.1f | N %d", fps, cfg.n);
