@@ -143,6 +143,160 @@ static void pasadaMuros(Mundo& m) {
     }
 }
 
+// Pasada 7b: casas de madera en.
+static void pasadaCasas(Mundo& m, uint32_t semilla) {
+    int numCasas = std::max(2, m.ancho / 130);
+    int casasColocadas = 0;
+    for (int intento = 0; intento < numCasas * 8 && casasColocadas < numCasas; ++intento) {
+        uint32_t h = mezclarHash(semilla, 0x66666666u, static_cast<uint32_t>(intento));
+        int anchoCasa = 11 + static_cast<int>(mezclarHash(h, 1u, 1u) % 5);
+        int altoCasa  = 6  + static_cast<int>(mezclarHash(h, 2u, 2u) % 2);
+        int x0 = 12 + static_cast<int>(h % std::max(1u, static_cast<uint32_t>(m.ancho - anchoCasa - 24)));
+
+        // Sitio plano: la superficie no varía más de 2 tiles bajo la casa.
+        int ysMin = m.alto, ysMax = 0;
+        for (int x = x0; x < x0 + anchoCasa; ++x) {
+            ysMin = std::min(ysMin, m.alturaSuperficie[x]);
+            ysMax = std::max(ysMax, m.alturaSuperficie[x]);
+        }
+        if (ysMax - ysMin > 2) continue;
+
+        int yPiso = ysMin - 1;               // fila del piso, sobre el punto más alto
+        if (yPiso - altoCasa < 2) continue;
+
+        // Caja de la casa: piso, paredes y techo de MADERA, interior AIRE
+        // con muro de fondo de madera; puerta de 3 tiles en el lado derecho.
+        for (int y = yPiso - altoCasa; y <= yPiso; ++y) {
+            for (int x = x0; x < x0 + anchoCasa; ++x) {
+                bool borde  = (x == x0 || x == x0 + anchoCasa - 1 ||
+                               y == yPiso || y == yPiso - altoCasa);
+                bool puerta = (x == x0 + anchoCasa - 1) &&
+                              (y >= yPiso - 3 && y <= yPiso - 1);
+                m.M_tipo.en(x, y)  = (borde && !puerta) ? MADERA : AIRE;
+                m.M_fondo.en(x, y) = FONDO_MADERA;
+            }
+        }
+        // Aleros del techo: una teja extra a cada lado.
+        int yTecho = yPiso - altoCasa;
+        if (m.M_tipo.dentro(x0 - 1, yTecho))            m.M_tipo.en(x0 - 1, yTecho) = MADERA;
+        if (m.M_tipo.dentro(x0 + anchoCasa, yTecho))    m.M_tipo.en(x0 + anchoCasa, yTecho) = MADERA;
+
+        // Cimiento: rellenar el hueco entre el piso y el terreno real.
+        for (int x = x0; x < x0 + anchoCasa; ++x)
+            for (int y = yPiso + 1; y < m.alto && m.M_tipo.en(x, y) == AIRE; ++y)
+                m.M_tipo.en(x, y) = TIERRA;
+
+        // Antorchas interiores sugeridas: las coloca la pasada 10.
+        m.antorchasSugeridas.emplace_back(x0 + 2, yPiso - 1);
+        if (anchoCasa >= 13)
+            m.antorchasSugeridas.emplace_back(x0 + anchoCasa - 4, yPiso - 1);
+        ++casasColocadas;
+    }
+}
+
+// Pasada 8: árboles sobre PASTO, con.
+static void pasadaArboles(Mundo& m, uint32_t semilla) {
+    int ultimoArbol = -100;
+    for (int x = 2; x < m.ancho - 2; ++x) {
+        int ys = m.alturaSuperficie[x];
+        if (m.M_tipo.enOr(x, ys, AIRE) != PASTO) continue;
+        if (m.M_tipo.enOr(x, ys - 1, PIEDRA) != AIRE) continue;   // hay una casa encima
+        if (x - ultimoArbol < 9) continue;
+        uint32_t h = mezclarHash(semilla, 0x22222222u, static_cast<uint32_t>(x));
+
+        // En el desierto no crecen árboles: crecen cactus cuerpo de HOJA,
+        // que el render pinta verde cactus en ese bioma.
+        if (m.bioma[x] == BIOMA_DESIERTO) {
+            if (hashAFloat(h) > 0.30f) continue;
+            int alturaCactus = 3 + static_cast<int>(mezclarHash(h, 9u, 9u) % 4);
+            for (int k = 1; k <= alturaCactus; ++k)
+                if (m.M_tipo.enOr(x, ys - k, PIEDRA) == AIRE) m.M_tipo.en(x, ys - k) = HOJA;
+            // Un brazo lateral a media altura, como los cactus clásicos.
+            int ladoBrazo = (mezclarHash(h, 8u, 8u) & 1u) ? 1 : -1;
+            int yBrazo = ys - alturaCactus / 2 - 1;
+            if (m.M_tipo.enOr(x + ladoBrazo, yBrazo, PIEDRA) == AIRE)
+                m.M_tipo.en(x + ladoBrazo, yBrazo) = HOJA;
+            ultimoArbol = x;
+            continue;
+        }
+        if (hashAFloat(h) > 0.42f) continue;
+
+        int alturaTronco = 5 + static_cast<int>(mezclarHash(h, 1u, 1u) % 4);
+        // Tronco: solo donde hay aire, para no perforar montañas.
+        for (int k = 1; k <= alturaTronco; ++k)
+            if (m.M_tipo.enOr(x, ys - k, PIEDRA) == AIRE) m.M_tipo.en(x, ys - k) = MADERA;
+        // Copa: blob irregular alrededor de la punta del tronco.
+        int cy = ys - alturaTronco;
+        int radioCopa = 3 + static_cast<int>(mezclarHash(h, 2u, 2u) % 2);
+        for (int dy = -radioCopa - 1; dy <= radioCopa; ++dy) {
+            for (int dx = -radioCopa; dx <= radioCopa; ++dx) {
+                float d = std::sqrt(static_cast<float>(dx * dx + dy * dy));
+                float irregular = hashAFloat(mezclarHash(h,
+                    static_cast<uint32_t>(dx + 64), static_cast<uint32_t>(dy + 64))) * 1.2f;
+                if (d < radioCopa + 0.4f - irregular * 0.9f &&
+                    m.M_tipo.enOr(x + dx, cy + dy, PIEDRA) == AIRE)
+                    m.M_tipo.en(x + dx, cy + dy) = HOJA;
+            }
+        }
+        ultimoArbol = x;
+    }
+}
+
+// Pasada 8b: islas flotantes.
+static void pasadaIslas(Mundo& m, uint32_t semilla) {
+    int numIslas = std::max(2, m.ancho / 160);
+    for (int isla = 0; isla < numIslas; ++isla) {
+        uint32_t h = mezclarHash(semilla, 0x15AA15u, static_cast<uint32_t>(isla));
+        int radioX = 7 + static_cast<int>(mezclarHash(h, 1u, 1u) % 6);
+        int radioY = 3 + static_cast<int>(mezclarHash(h, 2u, 2u) % 2);
+        int cx = 20 + static_cast<int>(h % std::max(1u, static_cast<uint32_t>(m.ancho - 40)));
+        int cy = 8 + static_cast<int>(mezclarHash(h, 3u, 3u) % 10);
+
+        // Muy pegada a una montaña alta no se ve "flotante": exigir aire.
+        int hs = m.alturaSuperficie[std::max(0, std::min(m.ancho - 1, cx))];
+        if (cy + radioY + 4 >= hs) continue;
+
+        // Blob elíptico de tierra con base irregular: más gruesa al centro.
+        for (int dx = -radioX; dx <= radioX; ++dx) {
+            for (int dy = -radioY; dy <= radioY + 2; ++dy) {
+                float nx = static_cast<float>(dx) / radioX;
+                float ny = static_cast<float>(dy) / (dy < 0 ? radioY : radioY + 2.0f);
+                float irregular = hashAFloat(mezclarHash(h,
+                    static_cast<uint32_t>(dx + 64), static_cast<uint32_t>(dy + 64))) * 0.35f;
+                if (nx * nx + ny * ny < 1.0f - irregular &&
+                    m.M_tipo.dentro(cx + dx, cy + dy))
+                    m.M_tipo.en(cx + dx, cy + dy) = TIERRA;
+            }
+        }
+
+        // Ruina de ladrillo o arbolito encima, alternando por isla.
+        if (mezclarHash(h, 4u, 4u) & 1u) {
+            // Ruina: tres columnas de ladrillo y el dintel caído.
+            for (int k = 0; k < 3; ++k) {
+                int rx = cx - 2 + k * 2;
+                for (int ry = cy - radioY - 3; ry < cy - radioY; ++ry)
+                    if (m.M_tipo.dentro(rx, ry) && m.M_tipo.en(rx, ry) == AIRE)
+                        m.M_tipo.en(rx, ry) = LADRILLO;
+            }
+        } else {
+            int alturaTronco = 4 + static_cast<int>(mezclarHash(h, 5u, 5u) % 3);
+            for (int k = 1; k <= alturaTronco; ++k)
+                if (m.M_tipo.dentro(cx, cy - radioY - k) &&
+                    m.M_tipo.en(cx, cy - radioY - k) == AIRE)
+                    m.M_tipo.en(cx, cy - radioY - k) = MADERA;
+            for (int dy = -2; dy <= 1; ++dy)
+                for (int dx = -2; dx <= 2; ++dx)
+                    if (std::abs(dx) + std::abs(dy) <= 3 &&
+                        m.M_tipo.dentro(cx + dx, cy - radioY - alturaTronco + dy) &&
+                        m.M_tipo.en(cx + dx, cy - radioY - alturaTronco + dy) == AIRE)
+                        m.M_tipo.en(cx + dx, cy - radioY - alturaTronco + dy) = HOJA;
+        }
+
+        // Antorcha en la orilla de la isla: faro nocturno del cielo.
+        m.antorchasSugeridas.emplace_back(cx + radioX - 2, cy - radioY - 1);
+    }
+}
+
 Mundo generarMundo(const Config& cfg, uint32_t semilla) {
     Mundo m;
     m.ancho   = cfg.grid_w;
@@ -164,6 +318,9 @@ Mundo generarMundo(const Config& cfg, uint32_t semilla) {
     pasadaMinerales(m, semilla);  // 5
     pasadaLava(m);                // 6
     pasadaMuros(m);               // 7
+    pasadaCasas(m, semilla);      // 7b: antes de los árboles: bloquea sus columnas
+    pasadaArboles(m, semilla);    // 8
+    pasadaIslas(m, semilla);      // 8b
 
     return m;
 }
