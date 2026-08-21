@@ -242,6 +242,31 @@ static void pasadaArboles(Mundo& m, uint32_t semilla) {
     }
 }
 
+// Pasada 9: estructura de ladrillo.
+static void pasadaEstructuras(Mundo& m, uint32_t semilla) {
+    int numEstructuras = std::max(1, m.ancho / 200);
+    for (int e = 0; e < numEstructuras; ++e) {
+        uint32_t h = mezclarHash(semilla, 0x33333333u, static_cast<uint32_t>(e));
+        int ancho = 22 + static_cast<int>(mezclarHash(h, 1u, 1u) % 12);
+        int alto  = 10 + static_cast<int>(mezclarHash(h, 2u, 2u) % 6);
+        int x0 = 20 + static_cast<int>(h % std::max(1u, static_cast<uint32_t>(m.ancho - ancho - 40)));
+        int hs = m.alturaSuperficie[std::min(m.ancho - 1, x0 + ancho / 2)];
+        int y0 = hs + 24 + static_cast<int>(mezclarHash(h, 3u, 3u) % std::max(1, m.alto - hs - alto - 40));
+        if (y0 + alto >= m.alto - 2) continue;
+
+        for (int y = y0; y < y0 + alto; ++y) {
+            for (int x = x0; x < x0 + ancho; ++x) {
+                bool borde = (x == x0 || x == x0 + ancho - 1 || y == y0 || y == y0 + alto - 1);
+                // Puertas: huecos de 3 tiles en el centro de los muros laterales.
+                bool puerta = (x == x0 || x == x0 + ancho - 1) &&
+                              (y > y0 + alto - 5 && y < y0 + alto - 1);
+                m.M_tipo.en(x, y)  = (borde && !puerta) ? LADRILLO : AIRE;
+                m.M_fondo.en(x, y) = FONDO_LADRILLO;
+            }
+        }
+    }
+}
+
 // Pasada 8b: islas flotantes.
 static void pasadaIslas(Mundo& m, uint32_t semilla) {
     int numIslas = std::max(2, m.ancho / 160);
@@ -297,6 +322,51 @@ static void pasadaIslas(Mundo& m, uint32_t semilla) {
     }
 }
 
+// Pasada 9b: minas abandonadas.
+static void pasadaMinas(Mundo& m, uint32_t semilla) {
+    int numMinas = std::max(2, m.ancho / 150);
+    for (int mina = 0; mina < numMinas; ++mina) {
+        uint32_t h = mezclarHash(semilla, 0x99999999u, static_cast<uint32_t>(mina));
+        int largo = 40 + static_cast<int>(mezclarHash(h, 1u, 1u) % 45);
+        int x = 12 + static_cast<int>(h % std::max(1u, static_cast<uint32_t>(m.ancho - 24)));
+        int dir = (mezclarHash(h, 2u, 2u) & 1u) ? 1 : -1;
+
+        int hs = m.alturaSuperficie[std::max(0, std::min(m.ancho - 1, x))];
+        int rango = std::max(1, m.alto - hs - 55);
+        int y = hs + 30 + static_cast<int>(mezclarHash(h, 3u, 3u) % rango);
+        if (y + 6 >= m.alto) continue;
+
+        for (int paso = 0; paso < largo; ++paso, x += dir) {
+            if (x < 2 || x >= m.ancho - 2) break;
+
+            // La galería ondula suavemente para no verse artificial.
+            if (paso % 9 == 8) {
+                y += static_cast<int>(mezclarHash(h, static_cast<uint32_t>(paso), 4u) % 3) - 1;
+                y = std::max(hs + 25, std::min(m.alto - 7, y));
+            }
+
+            // Túnel de 3 de alto con fondo de madera: tablones del socavón.
+            for (int dy = 0; dy < 3; ++dy) {
+                if (m.M_tipo.en(x, y + dy) != LADRILLO) m.M_tipo.en(x, y + dy) = AIRE;
+                m.M_fondo.en(x, y + dy) = FONDO_MADERA;
+            }
+
+            // Marco de madera cada 8 pasos: dos postes y viga superior.
+            if (paso % 8 == 4) {
+                for (int dy = 0; dy < 3; ++dy) m.M_tipo.en(x, y + dy) = MADERA;
+                if (m.M_tipo.dentro(x, y - 1))       m.M_tipo.en(x, y - 1) = MADERA;
+                if (m.M_tipo.dentro(x - dir, y - 1)) m.M_tipo.en(x - dir, y - 1) = MADERA;
+            }
+
+            // Antorcha colgada a media galería, cada ~14 pasos.
+            if (paso % 14 == 7) m.antorchasSugeridas.emplace_back(x, y + 1);
+        }
+    }
+}
+
+// La pasada 10 : colocación de las N fuentes de luz : vive en fuentes.cpp,
+// porque necesita la struct Fuente y sus colores.
+
 Mundo generarMundo(const Config& cfg, uint32_t semilla) {
     Mundo m;
     m.ancho   = cfg.grid_w;
@@ -321,6 +391,9 @@ Mundo generarMundo(const Config& cfg, uint32_t semilla) {
     pasadaCasas(m, semilla);      // 7b: antes de los árboles: bloquea sus columnas
     pasadaArboles(m, semilla);    // 8
     pasadaIslas(m, semilla);      // 8b
+    pasadaEstructuras(m, semilla);// 9
+    pasadaMinas(m, semilla);      // 9b
+    pasadaPasto(m);               // repaso: las cuevas/estructuras expusieron tierra nueva
 
     return m;
 }
