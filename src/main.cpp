@@ -12,20 +12,32 @@
 #include <vector>
 #include <omp.h>
 
+ // generarMundoValidado : worldgen con reintento de semilla: nunca falla.
+static uint32_t generarMundoValidado(const Config& cfg, uint32_t semilla, Mundo& mundo) {
+    // El terreno inválido se reintenta muchas veces: es barato y es raro.
+    for (int intento = 0; intento < 64; ++intento) {
+        mundo = generarMundo(cfg, semilla);
+        if (validarTerreno(mundo)) return semilla;
+        semilla = mezclarHash(semilla, 0xBADA55u, static_cast<uint32_t>(intento + 1));
+    }
+    // Nunca fallar: el screensaver corre con el último mundo generado.
+    std::fprintf(stderr, "Advertencia: ninguna semilla paso la validacion del terreno.\n");
+    return semilla;
+}
+
 int main(int argc, char** argv) {
     Config cfg;
     int codigo = parsearArgs(argc, argv, cfg);
     if (codigo != SALIDA_OK) return codigo;
 
-    // Configura la semilla del mundo.
+    // Semilla aleatoria salvo que el usuario haya fijado una con --seed
+    // fijarla es lo que hace reproducibles las mediciones más adelante.
     if (!cfg.seed_fija)
         cfg.seed = mezclarHash(static_cast<uint32_t>(std::time(nullptr)),
                                static_cast<uint32_t>(std::clock()), 0x5EEDu);
 
-    std::printf("Terraria Forge | mundo %dx%d tiles | semilla %u%s\n",
-                cfg.grid_w, cfg.grid_h, cfg.seed, cfg.headless ? " | headless" : "");
-
-    // Inicializa la pantalla en modo grafico.
+    // Ventana solo si no es headless : el modo headless aísla el costo de
+    // SDL y mide únicamente el cómputo.
     std::unique_ptr<Pantalla> pantalla;
     if (!cfg.headless) {
         try {
@@ -38,8 +50,11 @@ int main(int argc, char** argv) {
 
     std::vector<uint32_t> framebuffer(static_cast<size_t>(cfg.w) * cfg.h, 0);
 
-    // Genera el mundo e inicializa la camara.
-    Mundo mundo = generarMundo(cfg, cfg.seed);
+    Mundo mundo;
+    uint32_t semillaCiclo = generarMundoValidado(cfg, cfg.seed, mundo);
+    std::printf("Mundo con semilla %u: %dx%d tiles.\n",
+                semillaCiclo, mundo.ancho, mundo.alto);
+
     Camara camara;
     camara.reiniciar(mundo, cfg);
 
@@ -56,7 +71,7 @@ int main(int argc, char** argv) {
         const double tFrame0 = omp_get_wtime();
         double dt = tFrame0 - tPrev;
         tPrev = tFrame0;
-        if (dt > 0.1) dt = 0.1;              // Limita dt para evitar saltos
+        if (dt > 0.1) dt = 0.1;              // evitar saltos tras el worldgen
         const double tiempoGlobal = tFrame0 - tInicio;
 
         if (pantalla && pantalla->procesarEventos()) salir = true;
@@ -70,10 +85,10 @@ int main(int argc, char** argv) {
         std::snprintf(hud, sizeof(hud), "FPS %.1f", fps);
         dibujarTexto(framebuffer.data(), cfg.w, cfg.h, 10, 10, 2, hud, 0xFFFFFFFFu);
 
-        // Presentacion de pantalla en el hilo principal.
+        // Presentación: SOLO el hilo maestro toca SDL: no es thread-safe.
         if (pantalla) pantalla->presentar(framebuffer.data());
 
-        // Calculo de FPS.
+        // FPS por ventana deslizante de ~500 ms: estable pero reactivo.
         msVentana += (omp_get_wtime() - tFrame0) * 1000.0;
         ++framesVentana;
         if (msVentana >= 500.0) {
@@ -88,7 +103,7 @@ int main(int argc, char** argv) {
         }
         ++frames;
 
-        // Captura de pantalla opcional.
+        // Captura de depuración: volcar un frame a BMP y salir.
         if (!cfg.captura.empty() && !capturaHecha && tiempoGlobal >= cfg.captura_t) {
             capturaHecha = true;
             if (volcarBMP(cfg.captura, framebuffer.data(), cfg.w, cfg.h))

@@ -1,9 +1,3 @@
-/**
- * mundo.cpp — las 10 pasadas de generación del mundo (ver mundo.hpp).
- *
- * Cada pasada recorre la matriz completa y modifica una sola cosa.
- * El orden es estricto: cada pasada asume que las anteriores ya corrieron.
- */
 #include "mundo.hpp"
 #include "ruido.hpp"
 
@@ -11,17 +5,12 @@
 #include <cmath>
 #include <cstdlib>
 
-// ---------------------------------------------------------------
-// Pasada 0 — biomas: el mundo se parte en 3 zonas horizontales cuyo
-// bioma se sortea por semilla (bosque, nieve, corrupción, desierto).
-// El borde entre zonas se ditherea un par de columnas para que la
-// transición no sea una línea perfecta.
-// ---------------------------------------------------------------
+// Pasada 0: biomas.
 static void pasadaBiomas(Mundo& m, uint32_t semilla) {
     m.bioma.assign(m.ancho, BIOMA_BOSQUE);
 
-    // Sorteo de 3 biomas distintos: el bosque siempre sale (es el ancla
-    // visual de Terraria), los otros dos se eligen del resto.
+    // Sorteo de 3 biomas distintos: el bosque siempre sale es el ancla
+    // visual de Terraria, los otros dos se eligen del resto.
     uint8_t opciones[3] = {BIOMA_NIEVE, BIOMA_CORRUPCION, BIOMA_DESIERTO};
     uint32_t h = mezclarHash(semilla, 0xB10Bu, 0xB10Bu);
     uint8_t extraA = opciones[h % 3];
@@ -42,10 +31,7 @@ static void pasadaBiomas(Mundo& m, uint32_t semilla) {
     }
 }
 
-// ---------------------------------------------------------------
-// Pasada 1 — altura de la superficie: ruido 1D fractal por columna.
-// Montañas grandes (octava base) + detalle fino (octavas altas).
-// ---------------------------------------------------------------
+// Pasada 1: altura de la superficie.
 static void pasadaAltura(Mundo& m, const Ruido& ruido) {
     const float alturaBase = m.alto * 0.30f;
     const float amplitud   = m.alto * 0.13f;
@@ -59,10 +45,7 @@ static void pasadaAltura(Mundo& m, const Ruido& ruido) {
     }
 }
 
-// ---------------------------------------------------------------
-// Pasada 2 — capas: aire, tierra y piedra según la profundidad
-// relativa a la superficie, con grosor de tierra variable por ruido.
-// ---------------------------------------------------------------
+// Pasada 2: capas.
 static void pasadaCapas(Mundo& m, const Ruido& ruido) {
     for (int x = 0; x < m.ancho; ++x) {
         int hs = m.alturaSuperficie[x];
@@ -77,12 +60,7 @@ static void pasadaCapas(Mundo& m, const Ruido& ruido) {
     }
 }
 
-// ---------------------------------------------------------------
-// Pasada 3 — cuevas: se usa el VALOR ABSOLUTO del ruido 2D y se
-// conserva lo cercano a cero. Eso talla "crestas" continuas y
-// serpenteantes en vez de manchas sueltas. El umbral crece con la
-// profundidad: cuevas más grandes abajo.
-// ---------------------------------------------------------------
+// Pasada 3: cuevas.
 static void pasadaCuevas(Mundo& m, const Ruido& ruido) {
     for (int x = 0; x < m.ancho; ++x) {
         int hs = m.alturaSuperficie[x];
@@ -99,14 +77,70 @@ static void pasadaCuevas(Mundo& m, const Ruido& ruido) {
     }
 }
 
-// ---------------------------------------------------------------
-// Pasada 4 — pasto: todo TIERRA con AIRE justo encima se vuelve PASTO.
-// ---------------------------------------------------------------
+// Pasada 4: pasto.
 static void pasadaPasto(Mundo& m) {
     for (int x = 0; x < m.ancho; ++x)
         for (int y = 1; y < m.alto; ++y)
             if (m.M_tipo.en(x, y) == TIERRA && m.M_tipo.en(x, y - 1) == AIRE)
                 m.M_tipo.en(x, y) = PASTO;
+}
+
+// Pasada 5: vetas de mineral.
+static void pasadaMinerales(Mundo& m, uint32_t semilla) {
+    int numVetas = (m.ancho * m.alto) / 900;
+    for (int veta = 0; veta < numVetas; ++veta) {
+        uint32_t h = mezclarHash(semilla, 0x11111111u, static_cast<uint32_t>(veta));
+        int x = static_cast<int>(h % m.ancho);
+        int minY = m.alturaSuperficie[x] + 20;
+        if (minY >= m.alto - 4) continue;
+        int y = minY + static_cast<int>(mezclarHash(h, 1u, 2u) % (m.alto - 4 - minY));
+
+        int largo = 5 + static_cast<int>(mezclarHash(h, 3u, 4u) % 9);
+        for (int paso = 0; paso < largo; ++paso) {
+            if (m.M_tipo.enOr(x, y, AIRE) == PIEDRA) m.M_tipo.en(x, y) = MINERAL;
+            // También el vecino lateral, para que la veta tenga cuerpo.
+            if (m.M_tipo.enOr(x + 1, y, AIRE) == PIEDRA &&
+                (mezclarHash(h, static_cast<uint32_t>(paso), 7u) & 1u))
+                m.M_tipo.en(x + 1, y) = MINERAL;
+            uint32_t dir = mezclarHash(h, static_cast<uint32_t>(paso), 5u) % 4;
+            x += (dir == 0) - (dir == 1);
+            y += (dir == 2) - (dir == 3);
+            if (!m.M_tipo.dentro(x, y)) break;
+        }
+    }
+}
+
+// Pasada 6: lava en cavernas profundas.
+static void pasadaLava(Mundo& m) {
+    int inicioLava = (m.alto * 2) / 3;
+    for (int x = 0; x < m.ancho; ++x) {
+        int finCorrida = -1;   // fila del piso de la corrida de aire actual
+        for (int y = m.alto - 1; y >= inicioLava; --y) {
+            bool aire = (m.M_tipo.en(x, y) == AIRE);
+            if (aire && finCorrida < 0) finCorrida = y;
+            if (!aire && finCorrida >= 0) {
+                // Rellenar hasta 3 filas del fondo de la bolsa.
+                int filas = std::min(3, finCorrida - y);
+                for (int k = 0; k < filas; ++k) m.M_tipo.en(x, finCorrida - k) = LAVA;
+                finCorrida = -1;
+            }
+        }
+        if (finCorrida >= 0)   // bolsa que toca el fondo del rango
+            for (int k = 0; k < 3 && finCorrida - k >= inicioLava; ++k)
+                m.M_tipo.en(x, finCorrida - k) = LAVA;
+    }
+}
+
+// Pasada 7: muros de fondo.
+static void pasadaMuros(Mundo& m) {
+    for (int x = 0; x < m.ancho; ++x) {
+        int hs = m.alturaSuperficie[x];
+        for (int y = 0; y < m.alto; ++y) {
+            if (y <= hs) { m.M_fondo.en(x, y) = FONDO_NADA; continue; }
+            // Muro de tierra cerca de la superficie, de piedra en lo profundo.
+            m.M_fondo.en(x, y) = (y < hs + 16) ? FONDO_TIERRA : FONDO_PIEDRA;
+        }
+    }
 }
 
 Mundo generarMundo(const Config& cfg, uint32_t semilla) {
@@ -127,6 +161,32 @@ Mundo generarMundo(const Config& cfg, uint32_t semilla) {
     pasadaCapas(m, ruido);        // 2
     pasadaCuevas(m, ruido);       // 3
     pasadaPasto(m);               // 4
+    pasadaMinerales(m, semilla);  // 5
+    pasadaLava(m);                // 6
+    pasadaMuros(m);               // 7
 
     return m;
+}
+
+bool validarTerreno(const Mundo& m) {
+    // 1 Superficie continua: sin saltos bruscos entre columnas vecinas
+    // y dentro de márgenes verticales sanos.
+    for (int x = 0; x < m.ancho; ++x) {
+        int h = m.alturaSuperficie[x];
+        if (h < 3 || h > m.alto - 12) return false;
+        if (x > 0 && std::abs(h - m.alturaSuperficie[x - 1]) > 8) return false;
+    }
+
+    // 2 Aire subterráneo entre 20% y 45% del subsuelo:
+    // menos = mundo macizo aburrido, más = queso.
+    long celdasSub = 0, aireSub = 0;
+    for (int x = 0; x < m.ancho; ++x) {
+        for (int y = m.alturaSuperficie[x] + 1; y < m.alto; ++y) {
+            ++celdasSub;
+            if (m.M_tipo.en(x, y) == AIRE) ++aireSub;
+        }
+    }
+    if (celdasSub == 0) return false;
+    double fraccionAire = static_cast<double>(aireSub) / celdasSub;
+    return fraccionAire >= 0.10 && fraccionAire <= 0.45;
 }
