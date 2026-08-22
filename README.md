@@ -1,38 +1,3 @@
-# Terraria Forge
-
-**Proyecto #1 — Computación Paralela y Distribuida · Universidad del Valle de Guatemala · Semestre 2, 2026**
-
-Screensaver que genera un mundo 2D de tiles estilo Terraria, lo ensambla bloque
-por bloque, lo ilumina con **ray tracing de sombras** desde cada fuente de luz,
-lo recorre con la cámara (cielo → cuevas → infierno), lo desarma con caída
-parabólica y vuelve a empezar con una semilla nueva. Sin input del usuario —
-solo `ESC` cierra el programa.
-
-El mundo sortea **biomas** por semilla (bosque, nieve, corrupción, desierto),
-y genera cuevas, vetas de mineral, lava, árboles y cactus, casas de madera,
-minas abandonadas con vigas, islas flotantes con ruinas y un infierno de roca
-ardiente en el fondo.
-
-La carga computacional real está en la iluminación: cada celda del *lightmap*
-traza rayos hacia cada fuente cercana para saber si la ve o si hay roca en
-medio. Ese kernel es lo único que cambia entre la versión secuencial y la
-paralela — misma base de código, mismos flags de compilación, misma imagen.
-
-## Estado
-
-El repositorio se construye de forma incremental siguiendo `PLAN_FINAL.MD`.
-El orden de trabajo no se negocia: **primero la versión secuencial completa y
-medida, y solo después la paralela**. No aparece ningún `#pragma omp` hasta
-que la versión secuencial esté terminada y con su línea base `T₁` medida.
-
-- [x] Estructura del repositorio, Makefile y documentación de partida
-- [x] Ventana SDL2, framebuffer y overlay de FPS
-- [x] Generación procedural del mundo y render con paleta Terraria
-- [x] Iluminación por ray tracing (secuencial)
-- [ ] Ciclo de animación completo
-- [ ] Instrumentación y medición de la línea base `T₁`
-- [ ] Versión paralela con OpenMP y cálculo de speedup
-
 ## Compilación
 
 Requiere un compilador C++17 con OpenMP y SDL2.
@@ -60,7 +25,6 @@ brew install sdl2 libomp
 make
 ```
 
-
 ## Uso
 
 ```bash
@@ -70,7 +34,7 @@ make
 
 | Flag | Default | Qué controla |
 |---|---|---|
-| `--n` | 150 | **N fuentes de luz** (el parámetro del enunciado). `0` = solo luz ambiental; súbelo para llevar la máquina al límite |
+| `--n` | 150 | N fuentes de luz (el parámetro del enunciado). `0` = solo luz ambiental; súbelo para llevar la máquina al límite |
 | `--w` / `--h` | 1280×720 | Tamaño de ventana (mínimo 640×480) |
 | `--grid` | 400x240 | Tamaño del mundo en tiles |
 | `--radio` | 24 | Alcance de cada luz en tiles (costo ~cúbico: la perilla más agresiva) |
@@ -79,29 +43,16 @@ make
 | `--seed` | aleatoria | Semilla del mundo (fija = mundo reproducible entre corridas) |
 | `--duration` | ∞ | Segundos antes de salir |
 | `--headless` | off | Sin ventana: aísla el cómputo del costo de SDL |
-| `--vsync` | off | Sincronía con el refresco — **nunca al medir** |
+| `--vsync` | off | Sincronía con el refresco — nunca al medir |
 | `--captura ruta.bmp` | — | Volcar un frame a BMP y salir (`--captura-t` fija el segundo) |
 
-Programación defensiva: todos los flags se validan con `strtol/strtod`
-verificando `errno` y el puntero final (nunca `atoi`); cada error tiene su
-propio código de salida (2 uso, 3 valor, 5 SDL) y toda llamada SDL se verifica
-con `SDL_GetError()`.
+Screensaver que genera un mundo 2D de tiles estilo Terraria, lo ensambla bloque
+por bloque, lo ilumina con ray tracing de sombras desde cada fuente de luz,
+lo recorre con la cámara (cielo → cuevas → infierno), lo desarma con caída
+parabólica y vuelve a empezar con una semilla nueva. Sin input del usuario —
+solo `ESC` cierra el programa.
 
-## Cómo subir (o bajar) los FPS
-
-El costo del kernel de iluminación escala así — estas son las perillas para
-calibrar:
-
-| Perilla | Efecto en el costo | Para MÁS FPS | Para estresar la máquina |
-|---|---|---|---|
-| `--escala-luz` | cuadrático inverso | `4` u `8` | `1` |
-| `--radio` | ~cúbico (la más agresiva) | `12`–`16` | `48`–`64` |
-| `--muestras` | lineal | `1`–`2` | `8`–`16` |
-| `--n` | ~lineal (más fuentes en pantalla) | `50` | `2000`+ (con `--grid` grande) |
-
-## Documentos
-
-- `Proyecto_1_-_Computacion_Paralela_y_Distribuida.md` — enunciado oficial del curso.
-- `PLAN_FINAL.MD` — plan de diseño del equipo: modelo de datos en matrices
-  planas, kernel de iluminación, análisis PCAM, mecanismos de sincronía,
-  metodología de medición y reparto de trabajo.
+El mundo sortea biomas por semilla (bosque, nieve, corrupción, desierto),
+y genera cuevas, vetas de mineral, lava, árboles y cactus, casas de madera,
+minas abandonadas con vigas, islas flotantes con ruinas y un infierno de roca
+ardiente en el fondo.

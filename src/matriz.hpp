@@ -12,6 +12,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <cstddef>
 
 // convierte coordenadas 2D a índice plano row-major.
 inline int idx(int x, int y, int ancho) { return y * ancho + x; }
