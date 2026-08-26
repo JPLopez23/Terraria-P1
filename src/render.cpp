@@ -207,6 +207,38 @@ static inline ColorF muestrearLuz(const Lightmap& L, int px, int py, int escalaP
 }
 
 // Composición principal
+static inline bool tileAsentado(const Mundo& m, int i, Fase fase, float tFase) {
+    switch (fase) {
+        case Fase::ENSAMBLANDO: return m.M_anim.datos[i] >= 0.999f;
+        case Fase::DESARMANDO:  return tiempoCaida(m.M_retraso.datos[i], tFase) <= 0.0f;
+        default:                return true;
+    }
+}
+
+ // dibujarQuadTile : pinta un tile volador/cayendo como cuadrado de 8×8 px.
+static void dibujarQuadTile(uint32_t* fb, int w, int h, const Mundo& m, const Lightmap& L,
+                            uint8_t tipo, int tileX, int tileY, int sx, int sy,
+                            const Config& cfg, float tiempo) {
+    uint8_t bioma = m.bioma[std::max(0, std::min(m.ancho - 1, tileX))];
+    bool infierno = tileY > static_cast<int>(m.alto * FRACCION_INFIERNO);
+    for (int dy = 0; dy < TILE_PX; ++dy) {
+        int py = sy + dy;
+        if (py < 0 || py >= h) continue;
+        for (int dx = 0; dx < TILE_PX; ++dx) {
+            int px = sx + dx;
+            if (px < 0 || px >= w) continue;
+            ColorF c = texturaTile(tipo, tileX * TILE_PX + dx, tileY * TILE_PX + dy,
+                                   m.semilla, tiempo, bioma, infierno);
+            ColorF luz = muestrearLuz(L, px, py, cfg.escala_luz);
+            // Los tiles en vuelo se ven aunque estén en zona oscura:
+            // un mínimo de luz para que el ensamblaje siempre se aprecie.
+            float lr = std::max(luz.r, 0.35f), lg = std::max(luz.g, 0.35f), lb = std::max(luz.b, 0.40f);
+            fb[py * w + px] = empaquetarARGB(c.r * lr, c.g * lg, c.b * lb);
+        }
+    }
+}
+
+/** dibujarAntorcha : sprite de palito + llama animada sobre el framebuffer. */
 static void dibujarAntorcha(uint32_t* fb, int w, int h, const Fuente& f,
                             float camPxX, float camPxY, float tiempo) {
     int sx = static_cast<int>(f.x * TILE_PX - camPxX);
@@ -236,7 +268,8 @@ static void dibujarAntorcha(uint32_t* fb, int w, int h, const Fuente& f,
 }
 
 void componerFrame(const Mundo& m, const Lightmap& L, const std::vector<Fuente>& fuentes,
-                   const Camara& cam, double tiempo, const Config& cfg, uint32_t* fb) {
+                   const Camara& cam, Fase fase, float tFase, double tiempo,
+                   const Config& cfg, uint32_t* fb) {
     const int w = cfg.w, h = cfg.h;
     const float tiempoF = static_cast<float>(tiempo);
     const int altoMundoPx = m.alto * TILE_PX;
@@ -245,7 +278,7 @@ void componerFrame(const Mundo& m, const Lightmap& L, const std::vector<Fuente>&
     const int camPxX = static_cast<int>(std::floor(cam.x * TILE_PX));
     const int camPxY = static_cast<int>(std::floor(cam.y * TILE_PX));
 
-    // Pasada 1: fondo + tiles sólidos, píxel por píxel 
+    //  Pasada 1: fondo + tiles asentados, píxel por píxel 
     for (int py = 0; py < h; ++py) {
         int wpy = camPxY + py;
         int ty  = wpy >> 3;              // wpy / TILE_PX
@@ -255,11 +288,14 @@ void componerFrame(const Mundo& m, const Lightmap& L, const std::vector<Fuente>&
 
             uint8_t tipo  = m.M_tipo.enOr(tx, ty, AIRE);
             uint8_t fondo = m.M_fondo.enOr(tx, ty, FONDO_NADA);
+            int i = m.M_tipo.dentro(tx, ty) ? idx(tx, ty, m.ancho) : -1;
             uint8_t bioma = m.bioma[std::max(0, std::min(m.ancho - 1, tx))];
             bool infierno = ty > static_cast<int>(m.alto * FRACCION_INFIERNO);
 
             ColorF c;
-            if (tipo != AIRE) {
+            bool solidoVisible = (tipo != AIRE) && i >= 0 && tileAsentado(m, i, fase, tFase);
+
+            if (solidoVisible) {
                 c = texturaTile(tipo, wpx, wpy, m.semilla, tiempoF, bioma, infierno);
 
                 // Contorno oscuro en cada cara expuesta al aire : el borde
@@ -296,6 +332,43 @@ void componerFrame(const Mundo& m, const Lightmap& L, const std::vector<Fuente>&
         }
     }
 
+    // Pasada 2: tiles voladores: ensamblaje o cayendo: desarme 
+    if (fase == Fase::ENSAMBLANDO || fase == Fase::DESARMANDO) {
+        // Margen ancho: los tiles llegan volando desde fuera de la pantalla.
+        int tx0 = std::max(0, camPxX / TILE_PX - 72);
+        int tx1 = std::min(m.ancho - 1, (camPxX + w) / TILE_PX + 72);
+        int ty0 = std::max(0, camPxY / TILE_PX - 72);
+        int ty1 = std::min(m.alto - 1, (camPxY + h) / TILE_PX + 72);
+
+        for (int ty = ty0; ty <= ty1; ++ty) {
+            for (int tx = tx0; tx <= tx1; ++tx) {
+                int i = idx(tx, ty, m.ancho);
+                uint8_t tipo = m.M_tipo.datos[i];
+                if (tipo == AIRE) continue;
+
+                float px, py;
+                if (fase == Fase::ENSAMBLANDO) {
+                    float a = m.M_anim.datos[i];
+                    if (a <= 0.001f || a >= 0.999f) continue;   // aún no vuela / ya llegó
+                    px = m.M_origX.datos[i] + (tx - m.M_origX.datos[i]) * a;
+                    py = m.M_origY.datos[i] + (ty - m.M_origY.datos[i]) * a;
+                } else {
+                    float t = tiempoCaida(m.M_retraso.datos[i], tFase);
+                    if (t <= 0.0f) continue;                     // todavía en su lugar
+                    // Caída parabólica: y = y0 + v0 t + ½ g t².
+                    px = static_cast<float>(tx);
+                    py = ty + VEL_INICIAL_CAIDA * t + 0.5f * GRAVEDAD_TILES * t * t;
+                    if (py * TILE_PX - camPxY > h + TILE_PX) continue;  // ya salió por abajo
+                }
+
+                dibujarQuadTile(fb, w, h, m, L, tipo, tx, ty,
+                                static_cast<int>(px * TILE_PX) - camPxX,
+                                static_cast<int>(py * TILE_PX) - camPxY,
+                                cfg, tiempoF);
+            }
+        }
+    }
+
     // Pasada 3: sprites de antorcha: la llama sobre la luz calculada 
     for (const Fuente& f : fuentes) {
         if (f.clase != FUENTE_ANTORCHA || f.intensidad <= 0.01f) continue;
@@ -303,6 +376,7 @@ void componerFrame(const Mundo& m, const Lightmap& L, const std::vector<Fuente>&
                         tiempoF);
     }
 }
+
 
 // Fuente bitmap 5×7 para el overlay de FPS: sin dependencia de SDL_ttf
 static const uint8_t GLIFOS_5X7[][7] = {

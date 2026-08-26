@@ -2,13 +2,12 @@
 #include "mundo.hpp"
 #include "fuentes.hpp"
 #include "luz.hpp"
-#include "camara.hpp"
 #include "animacion.hpp"
+#include "camara.hpp"
 #include "render.hpp"
 #include "ruido.hpp"
 
 #include <cmath>
-#include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <memory>
@@ -66,11 +65,12 @@ int main(int argc, char** argv) {
     int codigo = parsearArgs(argc, argv, cfg);
     if (codigo != SALIDA_OK) return codigo;
 
-    // Semilla aleatoria salvo que el usuario haya fijado una con --seed
-    // fijarla es lo que hace reproducibles las mediciones más adelante.
     if (!cfg.seed_fija)
         cfg.seed = mezclarHash(static_cast<uint32_t>(std::time(nullptr)),
                                static_cast<uint32_t>(std::clock()), 0x5EEDu);
+
+    std::printf("Terraria Forge | N=%d | semilla %u%s\n",
+                cfg.n, cfg.seed, cfg.headless ? " | headless" : "");
 
     // Ventana solo si no es headless : el modo headless aísla el costo de
     // SDL y mide únicamente el cómputo.
@@ -93,20 +93,18 @@ int main(int argc, char** argv) {
 
     Mundo mundo;
     std::vector<Fuente> fuentes;
-    uint32_t semillaCiclo = generarMundoValidado(cfg, cfg.seed, mundo, fuentes);
-    std::printf("Mundo con semilla %u: %zu fuentes de luz.\n",
-                semillaCiclo, fuentes.size());
-
     Camara camara;
-    camara.reiniciar(mundo, cfg);
+
+    Fase  fase  = Fase::GENERANDO;
+    float tFase = 0.0f;
+    uint32_t semillaCiclo = cfg.seed;
 
     const double tInicio = omp_get_wtime();
     double tPrev = tInicio;
-    double tTour = 0.0;          // reloj del tour mientras no hay fases
-    double msVentana = 0.0;      // acumulador de la ventana deslizante de FPS
+    double ultimoLog = 0.0;
+    double msVentana = 0.0;
     int    framesVentana = 0;
     double fps = 0.0;
-    double ultimoLog = 0.0;
     long   frames = 0;
     bool   salir = false;
     bool   capturaHecha = false;
@@ -121,27 +119,66 @@ int main(int argc, char** argv) {
         if (pantalla && pantalla->procesarEventos()) salir = true;
         if (cfg.duration > 0.0 && tiempoGlobal >= cfg.duration) salir = true;
 
-        actualizarParpadeo(fuentes, tiempoGlobal, 1.0f);
-        // La máquina de estados llega en el commit 18. Hasta entonces el
-        tTour = std::fmod(tTour + dt, 2.0 * DUR_RECORRIENDO);
-        float tFase = static_cast<float>(tTour < DUR_RECORRIENDO
-                                         ? tTour : 2.0 * DUR_RECORRIENDO - tTour);
-        camara.actualizar(Fase::RECORRIENDO, tFase, static_cast<float>(dt), mundo);
+        // Máquina de estados + animación 
+        switch (fase) {
+            case Fase::GENERANDO: {
+                semillaCiclo = generarMundoValidado(cfg, semillaCiclo, mundo, fuentes);
+                inicializarAnimacion(mundo);
+                camara.reiniciar(mundo, cfg);
+                std::printf("Mundo con semilla %u: %zu fuentes de luz.\n",
+                            semillaCiclo, fuentes.size());
+                fase = Fase::ENSAMBLANDO;
+                tFase = 0.0f;
+                break;
+            }
+            case Fase::ENSAMBLANDO:
+                actualizarEnsamblaje(mundo, tFase);
+                if (tFase >= DUR_ENSAMBLANDO) {
+                    fijarAnimCompleta(mundo);
+                    fase = Fase::ENCENDIENDO;  tFase = 0.0f;
+                }
+                break;
+            case Fase::ENCENDIENDO:
+                if (tFase >= DUR_ENCENDIENDO) { fase = Fase::RECORRIENDO;  tFase = 0.0f; }
+                break;
+            case Fase::RECORRIENDO:
+                if (tFase >= DUR_RECORRIENDO) { fase = Fase::DESARMANDO;  tFase = 0.0f; }
+                break;
+            case Fase::DESARMANDO:
+                actualizarDesarme(mundo, tFase);
+                if (tFase >= DUR_DESARMANDO + 1.0f) {
+                    // Semilla nueva por ciclo: cada vuelta se ve un mundo distinto.
+                    semillaCiclo = mezclarHash(semillaCiclo, 0xC1C10u,
+                                               static_cast<uint32_t>(frames));
+                    fase = Fase::GENERANDO;  tFase = 0.0f;
+                }
+                break;
+        }
+
+        // Progreso de encendido de las antorchas: 0..1 según la fase.
+        float encendido = 0.0f;
+        if      (fase == Fase::ENCENDIENDO) encendido = tFase / DUR_ENCENDIENDO;
+        else if (fase == Fase::RECORRIENDO) encendido = 1.0f;
+        else if (fase == Fase::DESARMANDO)  encendido = std::max(0.0f, 1.0f - tFase / DUR_DESARMANDO);
+
+        actualizarParpadeo(fuentes, tiempoGlobal, encendido);
+        camara.actualizar(fase, tFase, static_cast<float>(dt), mundo);
 
         // El lightmap sigue a la cámara, alineado al mismo píxel entero que
         // usa el render: si no coincidieran, la luz "nadaría" sobre los tiles.
         L.origenX = std::floor(camara.x * TILE_PX) / TILE_PX;
         L.origenY = std::floor(camara.y * TILE_PX) / TILE_PX;
 
-        // El kernel: iluminación por ray tracing: ms_luz 
+        // El kernel: iluminación por ray tracing 
         const double tLuz0 = omp_get_wtime();
         EstadisticasLuz est = calcularIluminacion(mundo, fuentes, L, cfg);
         const double msLuz = (omp_get_wtime() - tLuz0) * 1000.0;
 
-        componerFrame(mundo, L, fuentes, camara, tiempoGlobal, cfg, framebuffer.data());
+        componerFrame(mundo, L, fuentes, camara, fase, tFase, tiempoGlobal,
+                      cfg, framebuffer.data());
 
-        char hud[64];
-        std::snprintf(hud, sizeof(hud), "FPS %.1f | N %d", fps, cfg.n);
+        char hud[96];
+        std::snprintf(hud, sizeof(hud), "FPS %.1f | N %d | %s", fps, cfg.n, nombreFase(fase));
         dibujarTexto(framebuffer.data(), cfg.w, cfg.h, 10, 10, 2, hud, 0xFFFFFFFFu);
 
         // Presentación: SOLO el hilo maestro toca SDL: no es thread-safe.
@@ -164,8 +201,7 @@ int main(int argc, char** argv) {
 
         if (tiempoGlobal - ultimoLog >= 1.0) {
             ultimoLog = tiempoGlobal;
-            std::printf("FPS %6.1f | luz %7.2f ms | energia %.1f | celdas iluminadas %ld\n",
-                        fps, msLuz, est.energia, est.celdasIluminadas);
+            std::printf("FPS %6.1f | luz %7.2f ms | %s\n", fps, msLuz, nombreFase(fase));
             std::fflush(stdout);
         }
 
@@ -178,6 +214,8 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "No se pudo escribir la captura %s\n", cfg.captura.c_str());
             salir = true;
         }
+
+        tFase += static_cast<float>(dt);
     }
 
     std::printf("Frames totales: %ld | FPS final: %.1f\n", frames, fps);
