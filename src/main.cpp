@@ -3,6 +3,7 @@
 #include "fuentes.hpp"
 #include "luz.hpp"
 #include "camara.hpp"
+#include "animacion.hpp"
 #include "render.hpp"
 #include "ruido.hpp"
 
@@ -101,6 +102,7 @@ int main(int argc, char** argv) {
 
     const double tInicio = omp_get_wtime();
     double tPrev = tInicio;
+    double tTour = 0.0;          // reloj del tour mientras no hay fases
     double msVentana = 0.0;      // acumulador de la ventana deslizante de FPS
     int    framesVentana = 0;
     double fps = 0.0;
@@ -120,7 +122,11 @@ int main(int argc, char** argv) {
         if (cfg.duration > 0.0 && tiempoGlobal >= cfg.duration) salir = true;
 
         actualizarParpadeo(fuentes, tiempoGlobal, 1.0f);
-        camara.actualizar(static_cast<float>(dt), mundo);
+        // La máquina de estados llega en el commit 18. Hasta entonces el
+        tTour = std::fmod(tTour + dt, 2.0 * DUR_RECORRIENDO);
+        float tFase = static_cast<float>(tTour < DUR_RECORRIENDO
+                                         ? tTour : 2.0 * DUR_RECORRIENDO - tTour);
+        camara.actualizar(Fase::RECORRIENDO, tFase, static_cast<float>(dt), mundo);
 
         // El lightmap sigue a la cámara, alineado al mismo píxel entero que
         // usa el render: si no coincidieran, la luz "nadaría" sobre los tiles.
