@@ -17,6 +17,7 @@ void imprimirUso(const char* nombrePrograma) {
         "  --escala-luz <int>  px por celda de lightmap {1,2,4,8} (default 2; 4-8 = mas FPS)\n"
         "  --seed <uint>       semilla del mundo (default: aleatoria)\n"
         "  --duration <float>  segundos antes de salir (default: infinito)\n"
+        "  --csv <ruta>        volcar mediciones por frame a un CSV\n"
         "  --headless          sin ventana: mide solo el computo\n"
         "  --vsync             activar VSync (NUNCA al medir rendimiento)\n"
         "  --captura <ruta>    volcar un frame a BMP y salir (depuracion)\n"
@@ -136,6 +137,9 @@ int parsearArgs(int argc, char** argv, Config& cfg) {
         } else if (std::strcmp(a, "--duration") == 0) {
             const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
             if (!leerFlotante(t, a, 0.0, &cfg.duration)) return SALIDA_ERROR_VALOR;
+        } else if (std::strcmp(a, "--csv") == 0) {
+            const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
+            cfg.csv = t;
         } else if (std::strcmp(a, "--captura") == 0) {
             const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
             cfg.captura = t;
@@ -167,5 +171,17 @@ int parsearArgs(int argc, char** argv, Config& cfg) {
             "de la configuracion por defecto; cada frame puede tardar segundos.\n",
             cfg.n, cfg.radio, cfg.muestras, costoRelativo);
     }
+
+    // La ruta del CSV se verifica escribible ANTES de empezar a medir,
+    // no al final cuando los datos ya se perderian.
+    if (!cfg.csv.empty()) {
+        std::FILE* prueba = std::fopen(cfg.csv.c_str(), "a");
+        if (!prueba) {
+            std::fprintf(stderr, "Error: no se puede escribir el CSV en \"%s\".\n", cfg.csv.c_str());
+            return SALIDA_ERROR_ARCHIVO;
+        }
+        std::fclose(prueba);
+    }
+
     return SALIDA_OK;
 }

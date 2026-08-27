@@ -8,9 +8,9 @@ enum CodigoSalida {
     SALIDA_OK              = 0,
     SALIDA_ERROR_USO       = 2,   // flag desconocido o sin valor
     SALIDA_ERROR_VALOR     = 3,   // valor no numérico o fuera de rango
+    SALIDA_ERROR_ARCHIVO   = 4,   // ruta de CSV no escribible
     SALIDA_ERROR_SDL       = 5    // fallo al inicializar SDL
 };
-
 /** Config : todos los parámetros del programa. Sin valores hard-coded en el resto del código. */
 struct Config {
     int         n           = 150;      // --n: cantidad de fuentes de luz: el parámetro N del enunciado
@@ -26,6 +26,7 @@ struct Config {
     uint32_t    seed        = 0;        // --seed: semilla del mundo: 0 = aleatoria
     bool        seed_fija   = false;    // true si el usuario pasó --seed
     double      duration    = 0.0;      // --duration: segundos antes de salir: 0 = infinito
+    std::string csv         = "";       // --csv: ruta del archivo de mediciones
     bool        headless    = false;    // --headless: sin ventana, mide solo cómputo
     bool        vsync       = false;    // --vsync: sincronizar con el refresco: ¡apagado al medir!
     std::string captura     = "";       // --captura: volcar un frame a BMP y salir: depuración visual
