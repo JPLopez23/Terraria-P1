@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-
 void imprimirUso(const char* nombrePrograma) {
     std::fprintf(stderr,
         "Uso: %s [opciones]\n"
@@ -22,11 +21,12 @@ void imprimirUso(const char* nombrePrograma) {
         "  --vsync             activar VSync (NUNCA al medir rendimiento)\n"
         "  --captura <ruta>    volcar un frame a BMP y salir (depuracion)\n"
         "  --captura-t <float> segundos simulados antes de la captura (default 3)\n"
+        "  --test-luz          un frame determinista: imprime checksum del lightmap y sale\n"
+        "  --medicion          carga fija reproducible para benchmark (mundo encendido, camara fija)\n"
         "  --help              esta ayuda\n"
         "  ESC cierra el programa.\n",
         nombrePrograma);
 }
-
  // leerEntero : convierte texto a entero con validación estricta.
 static bool leerEntero(const char* texto, const char* flag,
                        long minimo, long maximo, long* destino) {
@@ -44,7 +44,6 @@ static bool leerEntero(const char* texto, const char* flag,
     *destino = v;
     return true;
 }
-
  // leerFlotante : convierte texto a double con validación estricta.
 static bool leerFlotante(const char* texto, const char* flag,
                          double minimoExclusivo, double* destino) {
@@ -62,7 +61,6 @@ static bool leerFlotante(const char* texto, const char* flag,
     *destino = v;
     return true;
 }
-
 int parsearArgs(int argc, char** argv, Config& cfg) {
     // Recorre pares --flag valor; los flags booleanos no llevan valor.
     for (int i = 1; i < argc; ++i) {
@@ -144,6 +142,11 @@ int parsearArgs(int argc, char** argv, Config& cfg) {
         } else if (std::strcmp(a, "--captura-t") == 0) {
             const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
             if (!leerFlotante(t, a, 0.0, &cfg.captura_t)) return SALIDA_ERROR_VALOR;
+        } else if (std::strcmp(a, "--medicion") == 0) {
+            cfg.medicion = true;
+        } else if (std::strcmp(a, "--test-luz") == 0) {
+            cfg.test_luz = true;
+            cfg.headless = true;   // el test es de cómputo puro, sin ventana
         } else if (std::strcmp(a, "--headless") == 0) {
             cfg.headless = true;
         } else if (std::strcmp(a, "--vsync") == 0) {
@@ -154,6 +157,15 @@ int parsearArgs(int argc, char** argv, Config& cfg) {
             return SALIDA_ERROR_USO;
         }
     }
-
+    // El costo del kernel escala ~N * radio^3: advertir combinaciones absurdas
+    // antes de dejar al usuario mirando un frame de varios segundos.
+    double costoRelativo = static_cast<double>(cfg.n) * cfg.radio * cfg.radio * cfg.radio
+                         * cfg.muestras / (150.0 * 24.0 * 24.0 * 24.0 * 4.0);
+    if (costoRelativo > 40.0) {
+        std::fprintf(stderr,
+            "Advertencia: --n %d con --radio %d y --muestras %d implica ~%.0fx el costo "
+            "de la configuracion por defecto; cada frame puede tardar segundos.\n",
+            cfg.n, cfg.radio, cfg.muestras, costoRelativo);
+    }
     return SALIDA_OK;
 }

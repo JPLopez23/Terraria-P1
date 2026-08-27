@@ -5,6 +5,7 @@
 #include "animacion.hpp"
 #include "camara.hpp"
 #include "render.hpp"
+#include "reloj.hpp"
 #include "ruido.hpp"
 
 #include <cmath>
@@ -14,7 +15,6 @@
 #include <string>
 #include <vector>
 #include <omp.h>
-
  // generarMundoValidado : worldgen con reintento de semilla: nunca falla.
 static uint32_t generarMundoValidado(const Config& cfg, uint32_t semilla,
                                      Mundo& mundo, std::vector<Fuente>& fuentes) {
@@ -84,6 +84,41 @@ int main(int argc, char** argv) {
         }
     }
 
+    //  Modo de prueba: un frame determinista y salir 
+    if (cfg.test_luz) {
+        Mundo mundoTest;
+        std::vector<Fuente> fuentesTest;
+        generarMundoValidado(cfg, cfg.seed, mundoTest, fuentesTest);
+        fijarAnimCompleta(mundoTest);
+        actualizarParpadeo(fuentesTest, 1.234, 1.0f);   // tiempo fijo → intensidades fijas
+
+        Camara camTest;
+        camTest.reiniciar(mundoTest, cfg);
+        // La vista de prueba baja al subsuelo, donde hay antorchas y sombras.
+        camTest.y = std::min(static_cast<float>(mundoTest.alto - camTest.visH),
+                             camTest.y + camTest.visH * 0.8f);
+
+        Lightmap Ltest;
+        Ltest.redimensionar(cfg.w / cfg.escala_luz, cfg.h / cfg.escala_luz);
+        Ltest.escala  = static_cast<float>(cfg.escala_luz) / TILE_PX;
+        Ltest.origenX = std::floor(camTest.x * TILE_PX) / TILE_PX;
+        Ltest.origenY = std::floor(camTest.y * TILE_PX) / TILE_PX;
+
+        double t0 = omp_get_wtime();
+        EstadisticasLuz e = calcularIluminacion(mundoTest, fuentesTest, Ltest, cfg);
+        double ms = (omp_get_wtime() - t0) * 1000.0;
+
+        // Checksum ponderado por posición: detecta luz correcta en el lugar
+        // equivocado, cosa que la energía total sola no ve.
+        double ponderado = 0.0;
+        for (size_t i = 0; i < Ltest.M_luzR.size(); ++i)
+            ponderado += (Ltest.M_luzR[i] * 2.0 + Ltest.M_luzG[i] * 3.0 + Ltest.M_luzB[i] * 5.0)
+                       * ((i % 8191) + 1);
+        std::printf("TEST energia=%.6f ponderado=%.6e celdas=%ld ms=%.2f\n",
+                    e.energia, ponderado, e.celdasIluminadas, ms);
+        return SALIDA_OK;
+    }
+
     // Lightmap alineado a pantalla: más fino que los tiles: §2.5 del plan.
     Lightmap L;
     L.redimensionar(cfg.w / cfg.escala_luz, cfg.h / cfg.escala_luz);
@@ -127,7 +162,15 @@ int main(int argc, char** argv) {
                 camara.reiniciar(mundo, cfg);
                 std::printf("Mundo con semilla %u: %zu fuentes de luz.\n",
                             semillaCiclo, fuentes.size());
-                fase = Fase::ENSAMBLANDO;
+                if (cfg.medicion) {
+                    // Modo benchmark: mundo ya ensamblado y encendido, cámara
+                    fijarAnimCompleta(mundo);
+                    camara.y = std::min(static_cast<float>(mundo.alto - camara.visH),
+                                        camara.y + camara.visH * 0.8f);
+                    fase = Fase::RECORRIENDO;
+                } else {
+                    fase = Fase::ENSAMBLANDO;
+                }
                 tFase = 0.0f;
                 break;
             }
@@ -142,12 +185,14 @@ int main(int argc, char** argv) {
                 if (tFase >= DUR_ENCENDIENDO) { fase = Fase::RECORRIENDO;  tFase = 0.0f; }
                 break;
             case Fase::RECORRIENDO:
-                if (tFase >= DUR_RECORRIENDO) { fase = Fase::DESARMANDO;  tFase = 0.0f; }
+                // En modo medición la fase nunca termina: carga constante.
+                if (!cfg.medicion && tFase >= DUR_RECORRIENDO) {
+                    fase = Fase::DESARMANDO;  tFase = 0.0f;
+                }
                 break;
             case Fase::DESARMANDO:
                 actualizarDesarme(mundo, tFase);
                 if (tFase >= DUR_DESARMANDO + 1.0f) {
-                    // Semilla nueva por ciclo: cada vuelta se ve un mundo distinto.
                     semillaCiclo = mezclarHash(semillaCiclo, 0xC1C10u,
                                                static_cast<uint32_t>(frames));
                     fase = Fase::GENERANDO;  tFase = 0.0f;
@@ -161,8 +206,14 @@ int main(int argc, char** argv) {
         else if (fase == Fase::RECORRIENDO) encendido = 1.0f;
         else if (fase == Fase::DESARMANDO)  encendido = std::max(0.0f, 1.0f - tFase / DUR_DESARMANDO);
 
-        actualizarParpadeo(fuentes, tiempoGlobal, encendido);
-        camara.actualizar(fase, tFase, static_cast<float>(dt), mundo);
+        if (cfg.medicion) {
+            // Parpadeo congelado y cámara quieta: el trabajo por frame es
+            // idéntico entre corridas.
+            actualizarParpadeo(fuentes, 1.234, 1.0f);
+        } else {
+            actualizarParpadeo(fuentes, tiempoGlobal, encendido);
+            camara.actualizar(fase, tFase, static_cast<float>(dt), mundo);
+        }
 
         // El lightmap sigue a la cámara, alineado al mismo píxel entero que
         // usa el render: si no coincidieran, la luz "nadaría" sobre los tiles.

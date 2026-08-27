@@ -30,8 +30,12 @@ struct Config {
     bool        vsync       = false;    // --vsync: sincronizar con el refresco: ¡apagado al medir!
     std::string captura     = "";       // --captura: volcar un frame a BMP y salir: depuración visual
     double      captura_t   = 3.0;      // --captura-t: segundos de simulación antes de capturar
+    bool        test_luz    = false;    // --test-luz: un frame determinista, imprime checksum y sale
+                                        // verifica que la versión paralela produzca la misma
+                                        // imagen que la secuencial
+    bool        medicion    = false;    // --medicion: carga fija y reproducible para el benchmark:
+                                        // mundo ensamblado y encendido desde el frame 0, cámara
 };
-
  // parsearArgs : lee y valida los argumentos del programa.
 int parsearArgs(int argc, char** argv, Config& cfg);
 
