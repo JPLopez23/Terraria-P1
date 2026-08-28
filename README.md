@@ -1,3 +1,14 @@
+Screensaver que genera un mundo 2D de tiles estilo Terraria, lo ensambla bloque
+por bloque, lo ilumina con ray tracing de sombras desde cada fuente de luz,
+lo recorre con la cámara (cielo → cuevas → infierno), lo desarma con caída
+parabólica y vuelve a empezar con una semilla nueva. Sin input del usuario —
+solo `ESC` cierra el programa.
+
+El mundo sortea biomas por semilla (bosque, nieve, corrupción, desierto),
+y genera cuevas, vetas de mineral, lava, árboles y cactus, casas de madera,
+minas abandonadas con vigas, islas flotantes con ruinas y un infierno de roca
+ardiente en el fondo.
+
 ## Compilación
 
 Requiere un compilador C++17 con OpenMP y SDL2.
@@ -45,14 +56,3 @@ make
 | `--headless` | off | Sin ventana: aísla el cómputo del costo de SDL |
 | `--vsync` | off | Sincronía con el refresco — nunca al medir |
 | `--captura ruta.bmp` | — | Volcar un frame a BMP y salir (`--captura-t` fija el segundo) |
-
-Screensaver que genera un mundo 2D de tiles estilo Terraria, lo ensambla bloque
-por bloque, lo ilumina con ray tracing de sombras desde cada fuente de luz,
-lo recorre con la cámara (cielo → cuevas → infierno), lo desarma con caída
-parabólica y vuelve a empezar con una semilla nueva. Sin input del usuario —
-solo `ESC` cierra el programa.
-
-El mundo sortea biomas por semilla (bosque, nieve, corrupción, desierto),
-y genera cuevas, vetas de mineral, lava, árboles y cactus, casas de madera,
-minas abandonadas con vigas, islas flotantes con ruinas y un infierno de roca
-ardiente en el fondo.
