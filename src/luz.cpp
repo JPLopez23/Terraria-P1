@@ -16,6 +16,7 @@ static constexpr float AMBIENTE_B = 0.58f;
 
 // Profundidad: en tiles bajo la superficie a la que el ambiente se apaga.
 static constexpr float PROFUNDIDAD_AMBIENTE = 22.0f;
+
 float trazarRayo(const float* M_bloqueo,
                  float x0, float y0, float x1, float y1, int G_w, int G_h)
 {
@@ -42,14 +43,20 @@ float trazarRayo(const float* M_bloqueo,
 static std::vector<float> M_bloqueoFrame;
 
  // precalcularBloqueo : llena la rejilla de bloqueo del frame actual.
-static void precalcularBloqueo(const Mundo& m) {
+static void precalcularBloqueo(const Mundo& m, bool paralelo) {
     size_t total = static_cast<size_t>(m.ancho) * m.alto;
     if (M_bloqueoFrame.size() != total) M_bloqueoFrame.resize(total);
     const uint8_t* tipo = m.M_tipo.datos.data();
     const float* anim = m.M_anim.datos.data();
     float* destino = M_bloqueoFrame.data();
-    for (long i = 0; i < static_cast<long>(total); ++i)
-        destino[i] = OPACIDAD[tipo[i]] * anim[i];
+    if (paralelo) {
+        #pragma omp parallel for
+        for (long i = 0; i < static_cast<long>(total); ++i)
+            destino[i] = OPACIDAD[tipo[i]] * anim[i];
+    } else {
+        for (long i = 0; i < static_cast<long>(total); ++i)
+            destino[i] = OPACIDAD[tipo[i]] * anim[i];
+    }
 }
 
  // llenarAmbiente : luz ambiental por profundidad, sumada ANTES de trazar rayos.
@@ -140,16 +147,23 @@ static void calcularFila(const Mundo& m, const std::vector<Fuente>& fuentes,
 EstadisticasLuz calcularIluminacion(const Mundo& m, const std::vector<Fuente>& fuentes,
                                     Lightmap& L, const Config& cfg) {
     // Rejilla de bloqueo del frame + ambiente base: Oceldas, despreciable
-    // frente al trazado de rayos.
-    precalcularBloqueo(m);
+    const bool paralela = (cfg.version != 0);
+    precalcularBloqueo(m, paralela);
     llenarAmbiente(m, L);
 
     // Solo las fuentes que pueden tocar la pantalla entran al lazo caliente.
     std::vector<Fuente> visibles = filtrarFuentesVisibles(fuentes, L);
 
-    // Versión secuencial: un solo hilo recorre todas las filas del lightmap.
-    for (int ly = 0; ly < L.alto; ++ly)
-        calcularFila(m, visibles, L, cfg.muestras, ly);
+    if (paralela) {
+        // LA versión paralela del proyecto: mismo algoritmo, filas del
+        #pragma omp parallel for
+        for (int ly = 0; ly < L.alto; ++ly)
+            calcularFila(m, visibles, L, cfg.muestras, ly);
+    } else {
+        // Versión secuencial: exactamente el mismo trabajo, un solo hilo.
+        for (int ly = 0; ly < L.alto; ++ly)
+            calcularFila(m, visibles, L, cfg.muestras, ly);
+    }
 
     // Estadísticas del frame: energía total y celdas iluminadas: sirven de
     EstadisticasLuz est;
