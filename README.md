@@ -56,3 +56,30 @@ make
 | `--headless` | off | Sin ventana: aísla el cómputo del costo de SDL |
 | `--vsync` | off | Sincronía con el refresco — nunca al medir |
 | `--captura ruta.bmp` | — | Volcar un frame a BMP y salir (`--captura-t` fija el segundo) |
+
+## Medición — línea base secuencial (T₁)
+
+Para medir se usan tres flags de carga fija y reproducible:
+
+| Flag | Qué controla |
+|---|---|
+| `--medicion` | Mundo ya ensamblado y encendido, cámara quieta: cada frame hace el mismo trabajo |
+| `--test-luz` | Un frame determinista: imprime el checksum del lightmap y sale |
+| `--csv <ruta>` | Vuelca los tiempos por frame (se valida escribible antes de medir) |
+
+```bash
+bash bench/correr.sh            # barrido rápido
+bash bench/correr.sh completo   # 30 corridas por N (protocolo del informe)
+python bench/analizar.py        # mediana / desviación / p99 -> bench/resumen.csv
+```
+
+Se descartan los primeros 120 frames o 3 s (caché fría, arranque). La mediana del
+tiempo de iluminación por frame es la referencia `T₁` contra la que la versión
+paralela calcula `Speedup(p) = T₁ / T_p`.
+
+| N | Luz (ms) | FPS | Notas |
+|---|---|---|---|
+| 150 | _(medir)_ | _(medir)_ | máquina de desarrollo, `--seed 42 --escala-luz 2` |
+| 400 | _(medir)_ | _(medir)_ | por debajo de 60 FPS — el problema que resuelve la paralelización |
+
+> Reemplazar los valores por los medidos en la máquina de cada equipo.
