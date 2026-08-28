@@ -11,9 +11,12 @@ enum CodigoSalida {
     SALIDA_ERROR_ARCHIVO   = 4,   // ruta de CSV no escribible
     SALIDA_ERROR_SDL       = 5    // fallo al inicializar SDL
 };
+
 /** Config : todos los parámetros del programa. Sin valores hard-coded en el resto del código. */
 struct Config {
     int         n           = 150;      // --n: cantidad de fuentes de luz: el parámetro N del enunciado
+    int         version     = 1;        // --version: 0 = secuencial, 1 = paralela: parallel for
+    int         threads     = 0;        // --threads: 0 = omp_get_num_procs
     int         w           = 1280;     // --w: ancho de ventana en píxeles: mínimo 640
     int         h           = 720;      // --h: alto de ventana en píxeles: mínimo 480
     int         grid_w      = 400;      // --grid AxB: ancho del mundo en tiles
@@ -37,6 +40,7 @@ struct Config {
     bool        medicion    = false;    // --medicion: carga fija y reproducible para el benchmark:
                                         // mundo ensamblado y encendido desde el frame 0, cámara
 };
+
  // parsearArgs : lee y valida los argumentos del programa.
 int parsearArgs(int argc, char** argv, Config& cfg);
 

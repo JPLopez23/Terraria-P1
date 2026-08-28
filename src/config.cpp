@@ -4,11 +4,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <omp.h>
+
 void imprimirUso(const char* nombrePrograma) {
     std::fprintf(stderr,
         "Uso: %s [opciones]\n"
         "  --n <int>           fuentes de luz a renderizar (0..1000000, default 150)\n"
         "                      0 = solo luz ambiental; sube N para estresar la maquina\n"
+        "  --version <int>     0 = SECUENCIAL, 1 = PARALELA con OpenMP parallel for (default 1)\n"
+        "  --threads <int>     hilos OpenMP de la version paralela (1..256, default: nucleos)\n"
         "  --w <int>           ancho de ventana en px (>=640, default 1280)\n"
         "  --h <int>           alto de ventana en px (>=480, default 720)\n"
         "  --grid <AxB>        tamano del mundo en tiles (>=64x64, default 400x240)\n"
@@ -28,6 +32,7 @@ void imprimirUso(const char* nombrePrograma) {
         "  ESC cierra el programa.\n",
         nombrePrograma);
 }
+
  // leerEntero : convierte texto a entero con validación estricta.
 static bool leerEntero(const char* texto, const char* flag,
                        long minimo, long maximo, long* destino) {
@@ -45,6 +50,7 @@ static bool leerEntero(const char* texto, const char* flag,
     *destino = v;
     return true;
 }
+
  // leerFlotante : convierte texto a double con validación estricta.
 static bool leerFlotante(const char* texto, const char* flag,
                          double minimoExclusivo, double* destino) {
@@ -62,6 +68,7 @@ static bool leerFlotante(const char* texto, const char* flag,
     *destino = v;
     return true;
 }
+
 int parsearArgs(int argc, char** argv, Config& cfg) {
     // Recorre pares --flag valor; los flags booleanos no llevan valor.
     for (int i = 1; i < argc; ++i) {
@@ -85,6 +92,14 @@ int parsearArgs(int argc, char** argv, Config& cfg) {
             // la máquina al límite: el costo crece ~linealmente con N.
             if (!leerEntero(t, a, 0, 1000000, &v)) return SALIDA_ERROR_VALOR;
             cfg.n = static_cast<int>(v);
+        } else if (std::strcmp(a, "--version") == 0) {
+            const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
+            if (!leerEntero(t, a, 0, 1, &v)) return SALIDA_ERROR_VALOR;
+            cfg.version = static_cast<int>(v);
+        } else if (std::strcmp(a, "--threads") == 0) {
+            const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
+            if (!leerEntero(t, a, 1, 256, &v)) return SALIDA_ERROR_VALOR;
+            cfg.threads = static_cast<int>(v);
         } else if (std::strcmp(a, "--w") == 0) {
             const char* t = requiereValor(a); if (!t) return SALIDA_ERROR_USO;
             if (!leerEntero(t, a, 640, 7680, &v)) return SALIDA_ERROR_VALOR;
@@ -161,6 +176,25 @@ int parsearArgs(int argc, char** argv, Config& cfg) {
             return SALIDA_ERROR_USO;
         }
     }
+
+    // Validaciones cruzadas y advertencias 
+    int nucleos = omp_get_num_procs();
+    if (cfg.threads == 0) cfg.threads = nucleos;
+    // La versión secuencial corre en un solo hilo por definición: si el
+    // usuario pidió hilos con --version 0, se le avisa que no aplican.
+    if (cfg.version == 0 && cfg.threads != 1) {
+        if (cfg.threads > 1)
+            std::fprintf(stderr,
+                "Nota: --version 0 es la version SECUENCIAL; --threads %d se ignora.\n",
+                cfg.threads);
+        cfg.threads = 1;
+    }
+    if (cfg.threads > nucleos) {
+        std::fprintf(stderr,
+            "Advertencia: --threads %d excede los %d procesadores logicos disponibles; "
+            "habra sobresuscripcion.\n", cfg.threads, nucleos);
+    }
+
     // El costo del kernel escala ~N * radio^3: advertir combinaciones absurdas
     // antes de dejar al usuario mirando un frame de varios segundos.
     double costoRelativo = static_cast<double>(cfg.n) * cfg.radio * cfg.radio * cfg.radio
