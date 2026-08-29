@@ -279,6 +279,7 @@ void componerFrame(const Mundo& m, const Lightmap& L, const std::vector<Fuente>&
     const int camPxY = static_cast<int>(std::floor(cam.y * TILE_PX));
 
     //  Pasada 1: fondo + tiles asentados, píxel por píxel 
+    #pragma omp parallel for if(cfg.version != 0)
     for (int py = 0; py < h; ++py) {
         int wpy = camPxY + py;
         int ty  = wpy >> 3;              // wpy / TILE_PX
@@ -376,7 +377,6 @@ void componerFrame(const Mundo& m, const Lightmap& L, const std::vector<Fuente>&
                         tiempoF);
     }
 }
-
 
 // Fuente bitmap 5×7 para el overlay de FPS: sin dependencia de SDL_ttf
 static const uint8_t GLIFOS_5X7[][7] = {
