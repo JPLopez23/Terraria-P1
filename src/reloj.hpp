@@ -10,7 +10,7 @@
 struct MedidorFrame {
     double ms_frame   = 0.0;   // frame completo
     double ms_luz     = 0.0;   // calcularIluminacion: el kernel
-    double ms_anim    = 0.0;   // maquina de estados/animación/cámara
+    double ms_anim    = 0.0;   // worldgen/animación/cámara
     double ms_comp    = 0.0;   // composición del framebuffer
     double ms_present = 0.0;   // SDL: 0 en --headless
 };
@@ -26,7 +26,7 @@ public:
             csv = std::fopen(cfg.csv.c_str(), "w");
             if (csv) {
                 std::fprintf(csv,
-                    "frame,n,radio,muestras,escala_luz,seed,"
+                    "frame,version,modo,threads,n,radio,muestras,escala_luz,seed,"
                     "fase,ms_frame,ms_luz,ms_anim,ms_comp,ms_present,fps,energia,celdas_iluminadas\n");
             }
         }
@@ -54,8 +54,10 @@ public:
 
         if (csv && (frame > FRAMES_CALENTAMIENTO || tiempoGlobal > 3.0)) {
             std::fprintf(csv,
-                "%ld,%d,%d,%d,%d,%u,%s,%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.3f,%ld\n",
-                frame, cfg.n, cfg.radio, cfg.muestras, cfg.escala_luz, cfg.seed,
+                "%ld,%d,%s,%d,%d,%d,%d,%d,%u,%s,%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.3f,%ld\n",
+                frame, cfg.version, cfg.version == 0 ? "secuencial" : "paralela",
+                cfg.threads, cfg.n, cfg.radio, cfg.muestras,
+                cfg.escala_luz, cfg.seed,
                 fase, med.ms_frame, med.ms_luz, med.ms_anim, med.ms_comp,
                 med.ms_present, fpsActual, est.energia, est.celdasIluminadas);
         }
