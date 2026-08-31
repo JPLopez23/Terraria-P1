@@ -19,7 +19,9 @@ else
     LDFLAGS   += -fopenmp
 endif
 
-SRC = $(wildcard src/*.cpp)
+SRC = src/main.cpp src/config.cpp src/ruido.cpp src/mundo.cpp \
+      src/fuentes.cpp src/luz.cpp src/animacion.cpp src/camara.cpp \
+      src/render.cpp
 OBJ = $(SRC:.cpp=.o)
 
 # Todo .o se recompila si cambia cualquier header: son pocos archivos y
