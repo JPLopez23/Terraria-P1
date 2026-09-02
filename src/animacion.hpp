@@ -2,7 +2,7 @@
 
 #include "mundo.hpp"
 
-/** Máquina de estados del screensaver: ver plan §6.1. */
+/** Máquina de estados del screensaver */
 enum class Fase { GENERANDO, ENSAMBLANDO, ENCENDIENDO, RECORRIENDO, DESARMANDO };
 
 /** Duraciones de cada fase en segundos. */
