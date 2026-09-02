@@ -130,7 +130,7 @@ int main(int argc, char** argv) {
         return SALIDA_OK;
     }
 
-    // Lightmap alineado a pantalla: más fino que los tiles: §2.5.
+    // Lightmap alineado a pantalla: rejilla más fina que los tiles.
     Lightmap L;
     L.redimensionar(cfg.w / cfg.escala_luz, cfg.h / cfg.escala_luz);
     L.escala = static_cast<float>(cfg.escala_luz) / TILE_PX;   // tiles por celda
